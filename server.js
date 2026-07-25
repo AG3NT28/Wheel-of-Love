@@ -16,16 +16,43 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
+const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'lamour2026';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'cdl-wheel-of-love-secret-change-me';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/wheel-of-love';
 
 const DATA_DIR = path.join(__dirname, 'data');
 const SEGMENTS_FILE = path.join(DATA_DIR, 'segments.json');
 const DEFAULT_SEGMENTS_FILE = path.join(DATA_DIR, 'segments.default.json');
-const SPINS_FILE = path.join(DATA_DIR, 'spins.json');
+
+// ---------------------------------------------------------------------------
+// MongoDB Connection & Spin Schema
+// ---------------------------------------------------------------------------
+mongoose.connect(MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).catch(err => {
+  console.warn('MongoDB connection warning:', err.message);
+  console.warn('Spin log will be stored in memory (not persistent) until MongoDB connects.');
+});
+
+const spinSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  code: { type: String, required: true },
+  segmentId: { type: String, required: true },
+  segmentLabel: { type: String, required: true },
+  name: String,
+  phone: String,
+  timestamp: { type: String, required: true },
+}, { timestamps: false });
+
+const Spin = mongoose.model('Spin', spinSchema);
+
+// Fallback in-memory storage if MongoDB isn't connected
+let spinsFallback = [];
 
 // ---------------------------------------------------------------------------
 // Small JSON file helpers (synchronous — fine for this scale of traffic)
@@ -50,12 +77,39 @@ function saveSegments(segments) {
   writeJSON(SEGMENTS_FILE, segments);
 }
 
-function getSpins() {
-  return readJSON(SPINS_FILE, []);
+async function getSpins() {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      return await Spin.find({}).sort({ timestamp: -1 }).lean();
+    }
+  } catch (err) {
+    console.error('Error reading spins from MongoDB:', err.message);
+  }
+  return spinsFallback;
 }
 
-function saveSpins(spins) {
-  writeJSON(SPINS_FILE, spins);
+async function saveSpin(spin) {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      await Spin.updateOne({ id: spin.id }, spin, { upsert: true });
+      spinsFallback = [spin, ...spinsFallback];
+      return;
+    }
+  } catch (err) {
+    console.error('Error saving spin to MongoDB:', err.message);
+  }
+  spinsFallback.unshift(spin);
+}
+
+async function clearSpins() {
+  try {
+    if (mongoose.connection.readyState === 1) {
+      await Spin.deleteMany({});
+    }
+  } catch (err) {
+    console.error('Error clearing spins from MongoDB:', err.message);
+  }
+  spinsFallback = [];
 }
 
 function generateCode() {
@@ -134,7 +188,7 @@ app.get('/api/segments', (req, res) => {
   res.json({ segments });
 });
 
-app.post('/api/spin', (req, res) => {
+app.post('/api/spin', async (req, res) => {
   const segments = getSegments()
     .filter((s) => s.active)
     .sort((a, b) => a.order - b.order);
@@ -148,18 +202,19 @@ app.post('/api/spin', (req, res) => {
   const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 80) : '';
   const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim().slice(0, 20) : '';
   const code = generateCode();
+  const spinId = crypto.randomUUID();
 
-  const spins = getSpins();
-  spins.unshift({
-    id: crypto.randomUUID(),
+  const spin = {
+    id: spinId,
     code,
     segmentId: winner.id,
     segmentLabel: winner.label,
     name,
     phone,
     timestamp: new Date().toISOString(),
-  });
-  saveSpins(spins);
+  };
+
+  await saveSpin(spin);
 
   res.json({
     index,
@@ -246,30 +301,42 @@ app.post('/api/admin/segments/reset', requireAdmin, (req, res) => {
 // ---------------------------------------------------------------------------
 // Admin: spin log
 // ---------------------------------------------------------------------------
-app.get('/api/admin/spins', requireAdmin, (req, res) => {
-  const spins = getSpins();
-  const counts = {};
-  for (const s of spins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
-  res.json({ spins, total: spins.length, counts });
+app.get('/api/admin/spins', requireAdmin, async (req, res) => {
+  try {
+    const spins = await getSpins();
+    const counts = {};
+    for (const s of spins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
+    res.json({ spins, total: spins.length, counts });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch spins.' });
+  }
 });
 
-app.delete('/api/admin/spins', requireAdmin, (req, res) => {
-  saveSpins([]);
-  res.json({ ok: true });
+app.delete('/api/admin/spins', requireAdmin, async (req, res) => {
+  try {
+    await clearSpins();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear spins.' });
+  }
 });
 
-app.get('/api/admin/spins/export', requireAdmin, (req, res) => {
-  const spins = getSpins();
-  const header = 'Timestamp,Name,Phone,Prize,Code\n';
-  const rows = spins
-    .map((s) => {
-      const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
-      return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
-    })
-    .join('\n');
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
-  res.send(header + rows);
+app.get('/api/admin/spins/export', requireAdmin, async (req, res) => {
+  try {
+    const spins = await getSpins();
+    const header = 'Timestamp,Name,Phone,Prize,Code\n';
+    const rows = spins
+      .map((s) => {
+        const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
+        return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
+      })
+      .join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
+    res.send(header + rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to export spins.' });
+  }
 });
 
 // ---------------------------------------------------------------------------
