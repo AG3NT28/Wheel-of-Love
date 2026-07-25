@@ -1,0 +1,19 @@
+{
+  "name": "wheel-of-love",
+  "version": "1.0.0",
+  "description": "Café du L'Amour — Wheel of Love spin-to-win experience with an editable admin dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

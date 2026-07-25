@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wheel Admin — Café du L'Amour</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <section class="login-screen" id="login-view">
+    <div class="login-card">
+      <img src="assets/logo-transparent.png" alt="Café du L'Amour logo" />
+      <h1>Wheel of Love — Admin</h1>
+      <p class="sub">Enter the admin password to edit today's wheel.</p>
+      <p class="login-error" id="login-error">Incorrect password.</p>
+      <form id="login-form">
+        <input type="password" id="login-password" placeholder="Admin password" autocomplete="current-password" required />
+        <button type="submit">Access Dashboard</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <div class="admin-shell hidden" id="dashboard-view">
+    <div class="admin-header">
+      <div class="brand">
+        <img src="assets/logo-transparent.png" alt="Café du L'Amour logo" />
+        <div>
+          <h1>Wheel of Love — Admin</h1>
+          <p class="sub">Edit segments, probabilities, and review today's spins.</p>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="logout-btn">Log out</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="segments">Wheel Segments</button>
+      <button class="tab-btn" data-tab="log">Spin Log</button>
+    </div>
+
+    <!-- SEGMENTS TAB -->
+    <section id="tab-segments">
+      <div class="panel">
+        <h2 class="panel-title">Prize probability</h2>
+        <p class="panel-desc">Each guest sees equal-sized slices, but the wheel is weighted behind the scenes using the numbers below. Weights don't need to add up to 100 — they're just relative to each other.</p>
+        <div class="prob-bar" id="prob-bar"></div>
+        <div class="prob-legend" id="prob-legend"></div>
+
+        <div class="segments-list" id="segments-list"></div>
+
+        <button class="btn btn-ghost btn-sm add-segment-btn" id="add-segment-btn">+ Add segment</button>
+      </div>
+
+      <div class="save-bar">
+        <span class="save-status" id="save-status">All changes saved</span>
+        <div class="save-actions">
+          <button class="btn btn-danger btn-sm" id="reset-btn">Reset to today's defaults</button>
+          <button class="btn btn-gold" id="save-btn">Save changes</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOG TAB -->
+    <section id="tab-log" class="hidden">
+      <div class="panel">
+        <h2 class="panel-title">Today's activity</h2>
+        <p class="panel-desc">Every spin is logged with a redemption code your team can check against this list.</p>
+
+        <div class="stats-row" id="stats-row"></div>
+
+        <div class="log-actions">
+          <span class="panel-desc" style="margin:0;">Newest spins first.</span>
+          <div style="display:flex; gap:8px;">
+            <a class="btn btn-ghost btn-sm" id="export-btn" href="/api/admin/spins/export">Export CSV</a>
+            <button class="btn btn-danger btn-sm" id="clear-log-btn">Clear history</button>
+          </div>
+        </div>
+
+        <div class="log-wrap">
+          <table class="log-table">
+            <thead>
+              <tr><th>Time</th><th>Guest</th><th>Phone</th><th>Prize</th><th>Code</th></tr>
+            </thead>
+            <tbody id="log-tbody"></tbody>
+          </table>
+          <p class="empty-state hidden" id="log-empty">No spins recorded yet today.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="js/admin.js"></script>
+</body>
+</html>

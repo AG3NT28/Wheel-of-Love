@@ -1,0 +1,72 @@
+[
+  {
+    "id": "bronze",
+    "order": 0,
+    "active": true,
+    "label": "Bronze Privilege",
+    "shortLabel": "Bronze",
+    "icon": "star",
+    "color": "#B05E12",
+    "colorLight": "#D98A3D",
+    "weight": 40,
+    "todayReward": "A complimentary Signature Cookie with today's order.",
+    "futureReward": "Complimentary Cappuccino on bills above ₹500 for your next 5 visits.",
+    "validityDays": 90
+  },
+  {
+    "id": "silver",
+    "order": 1,
+    "active": true,
+    "label": "Silver Privilege",
+    "shortLabel": "Silver",
+    "icon": "star",
+    "color": "#8E8E8E",
+    "colorLight": "#C7C7C7",
+    "weight": 25,
+    "todayReward": "Complimentary French Fries or Garlic Bread today.",
+    "futureReward": "Complimentary Mocktail or Iced Tea on bills above ₹700 for your next 7 visits.",
+    "validityDays": 90
+  },
+  {
+    "id": "gold",
+    "order": 2,
+    "active": true,
+    "label": "Gold Privilege",
+    "shortLabel": "Gold",
+    "icon": "star",
+    "color": "#BC8F1C",
+    "colorLight": "#E8CE7B",
+    "weight": 18,
+    "todayReward": "10% OFF on today's bill (Max ₹200).",
+    "futureReward": "10% OFF on bills above ₹800 for your next 10 visits.",
+    "validityDays": 90
+  },
+  {
+    "id": "platinum",
+    "order": 3,
+    "active": true,
+    "label": "Platinum Privilege",
+    "shortLabel": "Platinum",
+    "icon": "star",
+    "color": "#8FA3B0",
+    "colorLight": "#C3D2DA",
+    "weight": 11,
+    "todayReward": "A complimentary Dessert today.",
+    "futureReward": "Complimentary Premium Coffee (Latte/Cappuccino) on bills above ₹600 for your next 15 visits.",
+    "validityDays": 90
+  },
+  {
+    "id": "diamond",
+    "order": 4,
+    "active": true,
+    "label": "Diamond Privilege",
+    "shortLabel": "Diamond",
+    "icon": "diamond",
+    "color": "#13273F",
+    "colorLight": "#2E4A6E",
+    "weight": 6,
+    "todayReward": "15% OFF on today's bill (Max ₹500).",
+    "futureReward": "Complimentary Cappuccino on bills above ₹500 for your next 25 visits + 25% OFF on one future visit (Max ₹500).",
+    "validityDays": 90
+  }
+]

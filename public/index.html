@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Wheel of Love — Café du L'Amour</title>
+  <meta name="description" content="Spin the Wheel of Love at Café du L'Amour and unlock today's L'Amour Privilege." />
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div class="ambient" id="ambient" aria-hidden="true"></div>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <main class="page">
+
+    <div class="brand">
+      <img src="assets/logo-transparent.png" alt="Café du L'Amour logo" />
+      <span class="eyebrow">Café du L'Amour</span>
+    </div>
+
+    <h1 class="hero-title">Wheel of <em>Love</em></h1>
+    <p class="hero-script">spin to unlock your privilege</p>
+    <p class="hero-sub">One spin, one gift from us to you. Enter your name below, give the wheel a turn, and see which L'Amour Privilege finds its way to your table today.</p>
+
+    <div class="divider" aria-hidden="true"></div>
+
+    <section class="wheel-stage" aria-label="Prize wheel">
+      <svg class="wheel-pointer" viewBox="0 0 100 118" aria-hidden="true">
+        <path d="M50 118 C 22 90 6 66 6 42 C 6 19 25 2 50 2 C 75 2 94 19 94 42 C 94 66 78 90 50 118 Z"
+              fill="#EA3B28" stroke="#F7ECC8" stroke-width="4" />
+      </svg>
+      <div class="wheel-ring">
+        <div class="wheel-inner">
+          <canvas id="wheel-canvas" width="800" height="800" role="img" aria-label="Wheel of Love prize wheel"></canvas>
+        </div>
+      </div>
+      <div class="wheel-hub" aria-hidden="true">
+        <svg viewBox="0 0 100 100">
+          <g transform="rotate(28 50 50)">
+            <ellipse cx="50" cy="50" rx="24" ry="37" fill="none" stroke="#E8CE7B" stroke-width="4" />
+            <path d="M50 16 C 39 30 61 40 50 53 C 41 65 59 73 50 87" fill="none" stroke="#E8CE7B" stroke-width="4" stroke-linecap="round" />
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <form class="spin-panel" id="spin-form" novalidate>
+      <div class="field">
+        <label for="guest-name" class="visually-hidden">Your name</label>
+        <input id="guest-name" name="name" type="text" placeholder="Your name" autocomplete="name" maxlength="80" required />
+      </div>
+      <div class="field">
+        <label for="guest-phone" class="visually-hidden">Phone number (optional)</label>
+        <input id="guest-phone" name="phone" type="tel" placeholder="Phone number (optional)" autocomplete="tel" maxlength="20" />
+      </div>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <button type="submit" class="spin-btn" id="spin-btn">Spin the Wheel</button>
+      <p class="spin-hint">One spin per guest, please — make it count.</p>
+    </form>
+
+    <div class="guidelines">
+      <span>One privilege per visit</span>
+      <span>Dine-in only</span>
+      <span>Not valid on alcohol &amp; retail</span>
+      <span>Valid for 90 days from today</span>
+    </div>
+
+    <footer class="site-footer">Cafe of Love</footer>
+  </main>
+
+  <!-- Result modal -->
+  <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="locket-title">
+    <div class="locket">
+      <button class="locket-close" id="locket-close" aria-label="Close">✕</button>
+      <div class="locket-badge" id="locket-badge"></div>
+      <span class="locket-eyebrow">You've unlocked</span>
+      <h2 class="locket-title" id="locket-title"></h2>
+      <p class="locket-body" id="locket-today"></p>
+      <div class="locket-section">
+        <span class="label">On your next visits</span>
+        <p class="locket-body" id="locket-future"></p>
+      </div>
+      <div class="locket-code" id="locket-code"></div>
+      <p class="locket-note">Show this screen to our team to redeem today's reward. Valid for <span id="locket-validity">90</span> days.</p>
+      <button class="locket-continue" id="locket-continue">Continue</button>
+    </div>
+  </div>
+
+  <!-- Icon templates -->
+  <template id="icon-star">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.9 6.32 6.95.7-5.24 4.73 1.55 6.85L12 17.77l-6.16 3.33 1.55-6.85L2.15 9.52l6.95-.7L12 2.5z"/></svg>
+  </template>
+  <template id="icon-diamond">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8.5L8 3h8l4 5.5L12 21 4 8.5zm3.2-.6h9.6L14.7 4.5H9.3L7.2 7.9zM6 9.5l5.2 8.9L4.9 9.5H6zm12 0h1.1l-6.3 8.9L18 9.5zM8.4 9.5h7.2L12 15.8 8.4 9.5z"/></svg>
+  </template>
+
+  <script src="js/wheel.js"></script>
+</body>
+</html>
