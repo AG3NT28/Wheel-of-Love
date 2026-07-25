@@ -32,7 +32,7 @@ const DEFAULT_SEGMENTS_FILE = path.join(DATA_DIR, 'segments.default.json');
 // ---------------------------------------------------------------------------
 // MongoDB Connection & Spin Schema
 // ---------------------------------------------------------------------------
-mongoose.connect(MONGODB_URI).catch(err => {
+const mongoConnection = mongoose.connect(MONGODB_URI).catch(err => {
   console.warn('MongoDB connection warning:', err.message);
   console.warn('Spin log will be stored in memory (not persistent) until MongoDB connects.');
 });
@@ -146,23 +146,33 @@ function validateSegment(seg) {
 // Middleware
 // ---------------------------------------------------------------------------
 app.use(express.json({ limit: '256kb' }));
-app.use(
-  session({
-    name: 'wol.sid',
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: new MongoStore({
-      mongoUrl: MONGODB_URI,
-      touchAfter: 24 * 3600, // lazy session update (in seconds)
-    }),
-    cookie: {
-      maxAge: 12 * 60 * 60 * 1000, // 12 hours — comfortably covers one event day
-      httpOnly: true,
-      sameSite: 'lax',
-    },
-  })
-);
+
+// Setup session store
+const sessionConfig = {
+  name: 'wol.sid',
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 12 * 60 * 60 * 1000, // 12 hours — comfortably covers one event day
+    httpOnly: true,
+    sameSite: 'lax',
+  },
+};
+
+// Try to use MongoDB store if available, otherwise use memory store
+try {
+  sessionConfig.store = new MongoStore({
+    mongoUrl: MONGODB_URI,
+    touchAfter: 24 * 3600,
+  });
+  console.log('Session store: MongoDB');
+} catch (err) {
+  console.warn('Could not initialize MongoDB session store:', err.message);
+  console.warn('Using in-memory session store (sessions will be lost on restart)');
+}
+
+app.use(session(sessionConfig));
 app.use(express.static(path.join(__dirname, 'public')));
 
 function requireAdmin(req, res, next) {
