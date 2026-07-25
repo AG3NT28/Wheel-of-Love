@@ -16,6 +16,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const mongoose = require('mongoose');
 
 const app = express();
@@ -151,6 +152,10 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    store: new MongoStore({
+      mongoUrl: MONGODB_URI,
+      touchAfter: 24 * 3600, // lazy session update (in seconds)
+    }),
     cookie: {
       maxAge: 12 * 60 * 60 * 1000, // 12 hours — comfortably covers one event day
       httpOnly: true,
