@@ -238,7 +238,7 @@ app.post('/api/spin', async (req, res) => {
 // Admin auth
 // ---------------------------------------------------------------------------
 app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body || {};
+  const { mongodb+srv://saisuhas481_db_user:g2fAvJ42lf9AoZM@wheeloflove.3funje4.mongodb.net/?appName=Wheeloflovepassword } = req.body || {};
   if (password && password === ADMIN_PASSWORD) {
     req.session.isAdmin = true;
     return res.json({ ok: true });
