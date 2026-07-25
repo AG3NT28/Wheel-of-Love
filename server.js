@@ -31,10 +31,7 @@ const DEFAULT_SEGMENTS_FILE = path.join(DATA_DIR, 'segments.default.json');
 // ---------------------------------------------------------------------------
 // MongoDB Connection & Spin Schema
 // ---------------------------------------------------------------------------
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).catch(err => {
+mongoose.connect(MONGODB_URI).catch(err => {
   console.warn('MongoDB connection warning:', err.message);
   console.warn('Spin log will be stored in memory (not persistent) until MongoDB connects.');
 });
