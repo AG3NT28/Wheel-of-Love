@@ -11,12 +11,12 @@
  * single-café, single-event deployment, and trivial to inspect or back up.
  */
 
+require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
-const MongoStore = require('connect-mongo');
 const mongoose = require('mongoose');
 
 const app = express();
@@ -28,14 +28,34 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/wheel-
 const DATA_DIR = path.join(__dirname, 'data');
 const SEGMENTS_FILE = path.join(DATA_DIR, 'segments.json');
 const DEFAULT_SEGMENTS_FILE = path.join(DATA_DIR, 'segments.default.json');
+const SPINS_FILE = path.join(DATA_DIR, 'spins.json');
 
 // ---------------------------------------------------------------------------
 // MongoDB Connection & Spin Schema
 // ---------------------------------------------------------------------------
-const mongoConnection = mongoose.connect(MONGODB_URI).catch(err => {
-  console.warn('MongoDB connection warning:', err.message);
-  console.warn('Spin log will be stored in memory (not persistent) until MongoDB connects.');
-});
+let mongoReady = false;
+
+async function initializeMongo() {
+  if (!MONGODB_URI) return false;
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 2000,
+      socketTimeoutMS: 2000,
+    });
+    mongoReady = mongoose.connection.readyState === 1;
+    if (mongoReady) {
+      console.log('MongoDB connected');
+    }
+    return mongoReady;
+  } catch (err) {
+    mongoReady = false;
+    console.warn('MongoDB connection warning:', err.message);
+    console.warn('Spin log and sessions will use local fallback storage until MongoDB connects.');
+    return false;
+  }
+}
+
+initializeMongo();
 
 const spinSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true },
@@ -49,8 +69,12 @@ const spinSchema = new mongoose.Schema({
 
 const Spin = mongoose.model('Spin', spinSchema);
 
-// Fallback in-memory storage if MongoDB isn't connected
-let spinsFallback = [];
+// Fallback storage if MongoDB isn't connected
+let spinsFallback = readJSON(SPINS_FILE, []);
+
+function persistSpinsFallback() {
+  writeJSON(SPINS_FILE, spinsFallback);
+}
 
 // ---------------------------------------------------------------------------
 // Small JSON file helpers (synchronous — fine for this scale of traffic)
@@ -77,37 +101,41 @@ function saveSegments(segments) {
 
 async function getSpins() {
   try {
-    if (mongoose.connection.readyState === 1) {
-      return await Spin.find({}).sort({ timestamp: -1 }).lean();
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      const spins = await Spin.find({}).sort({ timestamp: -1 }).lean();
+      spinsFallback = spins;
+      persistSpinsFallback();
+      return spins;
     }
   } catch (err) {
     console.error('Error reading spins from MongoDB:', err.message);
   }
+  spinsFallback = readJSON(SPINS_FILE, []);
   return spinsFallback;
 }
 
 async function saveSpin(spin) {
   try {
-    if (mongoose.connection.readyState === 1) {
+    if (mongoReady && mongoose.connection.readyState === 1) {
       await Spin.updateOne({ id: spin.id }, spin, { upsert: true });
-      spinsFallback = [spin, ...spinsFallback];
-      return;
     }
   } catch (err) {
     console.error('Error saving spin to MongoDB:', err.message);
   }
   spinsFallback.unshift(spin);
+  persistSpinsFallback();
 }
 
 async function clearSpins() {
   try {
-    if (mongoose.connection.readyState === 1) {
+    if (mongoReady && mongoose.connection.readyState === 1) {
       await Spin.deleteMany({});
     }
   } catch (err) {
     console.error('Error clearing spins from MongoDB:', err.message);
   }
   spinsFallback = [];
+  persistSpinsFallback();
 }
 
 function generateCode() {
@@ -160,24 +188,29 @@ const sessionConfig = {
   },
 };
 
-// Try to use MongoDB store if available, otherwise use memory store
-try {
-  sessionConfig.store = new MongoStore({
-    mongoUrl: MONGODB_URI,
-    touchAfter: 24 * 3600,
-  });
-  console.log('Session store: MongoDB');
-} catch (err) {
-  console.warn('Could not initialize MongoDB session store:', err.message);
-  console.warn('Using in-memory session store (sessions will be lost on restart)');
-}
+const sessionStore = new session.MemoryStore();
 
+const initializeSessionStore = async () => {
+  const connected = await initializeMongo();
+  if (connected) {
+    console.log('MongoDB available for spins; sessions remain in memory for reliability.');
+  } else {
+    console.warn('MongoDB unavailable; sessions will stay in memory.');
+  }
+};
+
+sessionConfig.store = sessionStore;
 app.use(session(sessionConfig));
 app.use(express.static(path.join(__dirname, 'public')));
+initializeSessionStore();
 
 function requireAdmin(req, res, next) {
   if (req.session && req.session.isAdmin) return next();
   return res.status(401).json({ error: 'Not authenticated.' });
+}
+
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +233,7 @@ app.get('/api/segments', (req, res) => {
   res.json({ segments });
 });
 
-app.post('/api/spin', async (req, res) => {
+app.post('/api/spin', asyncHandler(async (req, res) => {
   const segments = getSegments()
     .filter((s) => s.active)
     .sort((a, b) => a.order - b.order);
@@ -244,7 +277,7 @@ app.post('/api/spin', async (req, res) => {
       code,
     },
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Admin auth
@@ -313,42 +346,44 @@ app.post('/api/admin/segments/reset', requireAdmin, (req, res) => {
 // ---------------------------------------------------------------------------
 // Admin: spin log
 // ---------------------------------------------------------------------------
-app.get('/api/admin/spins', requireAdmin, async (req, res) => {
-  try {
-    const spins = await getSpins();
-    const counts = {};
-    for (const s of spins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
-    res.json({ spins, total: spins.length, counts });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch spins.' });
-  }
-});
+app.get('/api/admin/spins', requireAdmin, asyncHandler(async (req, res) => {
+  const spins = await getSpins();
+  const counts = {};
+  for (const s of spins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
+  res.json({ spins, total: spins.length, counts });
+}));
 
-app.delete('/api/admin/spins', requireAdmin, async (req, res) => {
-  try {
-    await clearSpins();
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to clear spins.' });
-  }
-});
+app.delete('/api/admin/spins', requireAdmin, asyncHandler(async (req, res) => {
+  await clearSpins();
+  res.json({ ok: true });
+}));
 
-app.get('/api/admin/spins/export', requireAdmin, async (req, res) => {
-  try {
-    const spins = await getSpins();
-    const header = 'Timestamp,Name,Phone,Prize,Code\n';
-    const rows = spins
-      .map((s) => {
-        const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
-        return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
-      })
-      .join('\n');
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
-    res.send(header + rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to export spins.' });
+app.get('/api/admin/spins/export', requireAdmin, asyncHandler(async (req, res) => {
+  const spins = await getSpins();
+  const header = 'Timestamp,Name,Phone,Prize,Code\n';
+  const rows = spins
+    .map((s) => {
+      const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
+      return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
+    })
+    .join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
+  res.send(header + rows);
+}));
+
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    console.error('Unhandled server error after headers were already sent:', err?.message || err);
+    return;
   }
+
+  console.error('Unhandled server error:', err?.message || err);
+  res.status(err?.statusCode || 500).json({
+    error: process.env.NODE_ENV === 'production'
+      ? 'Something went wrong. Please try again later.'
+      : err?.message || 'Something went wrong. Please try again later.',
+  });
 });
 
 // ---------------------------------------------------------------------------

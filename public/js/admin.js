@@ -301,7 +301,7 @@
       id: uid(),
       order: segments.length,
       active: true,
-      label: 'New Privilege',
+      label: 'New Tier',
       shortLabel: 'New',
       icon: 'star',
       color: '#BC8F1C',

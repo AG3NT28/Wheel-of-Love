@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": "7affe17e-2c67-4f1a-bbe8-30bdc28b382f",
+    "code": "LOVE-KJGK8C",
+    "segmentId": "platinum",
+    "segmentLabel": "Platinum Tier",
+    "name": "as",
+    "phone": "",
+    "timestamp": "2026-08-01T05:46:33.898Z"
+  },
+  {
+    "id": "a747e9dc-bf5f-4cc7-8739-1a50d7b33de4",
+    "code": "LOVE-W96RGL",
+    "segmentId": "gold",
+    "segmentLabel": "Gold Tier",
+    "name": "as",
+    "phone": "",
+    "timestamp": "2026-08-01T04:37:47.245Z"
+  }
+]

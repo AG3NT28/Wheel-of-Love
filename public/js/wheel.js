@@ -8,10 +8,24 @@
   const errorEl = document.getElementById('form-error');
   const overlay = document.getElementById('overlay');
   const ambient = document.getElementById('ambient');
+  const burstLayer = document.getElementById('burst-layer');
+  const flashOverlay = document.createElement('div');
+  flashOverlay.className = 'flash-overlay';
+  document.body.appendChild(flashOverlay);
+  const effectVersion = '20260801a';
 
   let segments = [];
   let cumulativeRotation = 0;
   let isSpinning = false;
+  let audioContext = null;
+  const tierAudioMap = {
+    bronze: '/audio/reward-chime.mp3',
+    silver: '/audio/level-up.mp3',
+    gold: '/audio/victory-fanfare.mp3',
+    platinum: '/audio/fantasy-game-sweep.wav',
+    diamond: '/audio/magic-transition-sweep.wav',
+  };
+  const audioPlayers = {};
 
   // ---------------------------------------------------------------------
   // Ambient floating hearts
@@ -46,6 +60,131 @@
       document.body.appendChild(piece);
       setTimeout(() => piece.remove(), 5200);
     }
+  }
+
+  function ensureAudioContext() {
+    if (!audioContext) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      audioContext = new AudioCtx();
+    }
+
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+
+    return audioContext;
+  }
+
+  async function playTierSound(tierId) {
+    const audioSrc = tierAudioMap[tierId];
+
+    if (audioSrc && typeof Audio !== 'undefined') {
+      try {
+        if (!audioPlayers[audioSrc]) {
+          const audio = new Audio(audioSrc);
+          audio.preload = 'auto';
+          audio.volume = 0.9;
+          audioPlayers[audioSrc] = audio;
+        }
+
+        const audio = audioPlayers[audioSrc];
+        audio.currentTime = 0;
+        await audio.play();
+        return;
+      } catch (err) {
+        // Fall back to synthesized tones if the browser blocks the audio file.
+      }
+    }
+
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+
+    const presets = {
+      bronze: [
+        { freq: 220, type: 'sine', duration: 0.14, gain: 0.0007 },
+        { freq: 330, type: 'triangle', duration: 0.18, gain: 0.00055 },
+      ],
+      silver: [
+        { freq: 392, type: 'triangle', duration: 0.12, gain: 0.0006 },
+        { freq: 523, type: 'sine', duration: 0.16, gain: 0.0005 },
+        { freq: 659, type: 'triangle', duration: 0.2, gain: 0.00045 },
+      ],
+      gold: [
+        { freq: 440, type: 'triangle', duration: 0.1, gain: 0.0007 },
+        { freq: 659, type: 'sine', duration: 0.14, gain: 0.0006 },
+        { freq: 880, type: 'triangle', duration: 0.18, gain: 0.0005 },
+      ],
+      platinum: [
+        { freq: 523, type: 'sine', duration: 0.11, gain: 0.00055 },
+        { freq: 698, type: 'triangle', duration: 0.15, gain: 0.0005 },
+        { freq: 880, type: 'sine', duration: 0.2, gain: 0.00045 },
+      ],
+      diamond: [
+        { freq: 659, type: 'triangle', duration: 0.11, gain: 0.0007 },
+        { freq: 784, type: 'sine', duration: 0.14, gain: 0.0006 },
+        { freq: 1046, type: 'triangle', duration: 0.18, gain: 0.00055 },
+        { freq: 1318, type: 'sine', duration: 0.22, gain: 0.00045 },
+      ],
+    };
+
+    const notes = presets[tierId] || presets.gold;
+    const now = ctx.currentTime;
+
+    notes.forEach((note, index) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const start = now + index * 0.035;
+
+      osc.type = note.type;
+      osc.frequency.setValueAtTime(note.freq, start);
+      osc.frequency.exponentialRampToValueAtTime(note.freq * 1.06, start + note.duration);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(note.gain, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + note.duration);
+
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + note.duration + 0.02);
+    });
+  }
+
+  function triggerTierBurst(result, origin = { x: '50%', y: '50%' }) {
+    const tier = segments.find((segment) => segment.id === result?.id) || segments.find((segment) => segment.label === result?.label);
+    if (!tier || !burstLayer) return;
+
+    const presets = {
+      bronze: { className: 'bronze', sparkleCount: 12, glyphs: ['✦', '✧', '•'], radius: [36, 64], duration: 1.05 },
+      silver: { className: 'silver', sparkleCount: 16, glyphs: ['✦', '✺', '✧'], radius: [44, 74], duration: 1.12 },
+      gold: { className: 'gold', sparkleCount: 20, glyphs: ['✦', '✺', '♥'], radius: [50, 84], duration: 1.2 },
+      platinum: { className: 'platinum', sparkleCount: 18, glyphs: ['✦', '❋', '✧'], radius: [44, 80], duration: 1.25 },
+      diamond: { className: 'diamond', sparkleCount: 26, glyphs: ['✦', '✺', '❋', '☆'], radius: [58, 96], duration: 1.35 },
+    };
+
+    const preset = presets[tier.id] || presets.gold;
+    const burst = document.createElement('div');
+    burst.className = `burst ${preset.className}`;
+    burst.style.left = origin.x;
+    burst.style.top = origin.y;
+    burst.style.setProperty('--burst-color', tier.colorLight || tier.color);
+    burst.style.setProperty('--burst-duration', `${preset.duration}s`);
+
+    for (let i = 0; i < preset.sparkleCount; i++) {
+      const sparkle = document.createElement('span');
+      sparkle.className = 'sparkle';
+      sparkle.textContent = preset.glyphs[i % preset.glyphs.length];
+      sparkle.style.animationDelay = `${Math.random() * 0.05}s`;
+      sparkle.style.animationDuration = `${preset.duration - 0.08 + Math.random() * 0.12}s`;
+      const angle = (i / preset.sparkleCount) * Math.PI * 2;
+      const radius = preset.radius[0] + Math.random() * (preset.radius[1] - preset.radius[0]);
+      sparkle.style.setProperty('--x', `${Math.cos(angle) * radius}px`);
+      sparkle.style.setProperty('--y', `${Math.sin(angle) * radius}px`);
+      burst.appendChild(sparkle);
+    }
+
+    burstLayer.appendChild(burst);
+    setTimeout(() => burst.remove(), 1500);
   }
 
   // ---------------------------------------------------------------------
@@ -179,7 +318,19 @@
     document.getElementById('locket-validity').textContent = result.validityDays;
     fillBadge(result.icon, result.color);
     overlay.classList.add('visible');
+    const wheelRing = document.querySelector('.wheel-ring');
+    wheelRing?.classList.add('win-glow');
+    wheelRing?.classList.add('shake');
+    flashOverlay.classList.remove('active');
+    void flashOverlay.offsetWidth;
+    flashOverlay.classList.add('active');
+    setTimeout(() => {
+      wheelRing?.classList.remove('win-glow');
+      wheelRing?.classList.remove('shake');
+    }, 900);
     spawnConfetti(result.color);
+    triggerTierBurst(result, { x: '50%', y: '48%' });
+    void playTierSound(result.id);
   }
 
   function escapeHTML(str) {

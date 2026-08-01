@@ -114,6 +114,170 @@ body {
   background: radial-gradient(120% 120% at 50% 40%, transparent 40%, rgba(0, 0, 0, 0.55) 100%);
 }
 
+.burst-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  overflow: hidden;
+}
+
+.flash-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 44;
+  background: radial-gradient(circle, rgba(255, 247, 199, 0.95) 0%, rgba(255, 214, 102, 0.35) 26%, rgba(255, 255, 255, 0) 70%);
+  opacity: 0;
+}
+
+.flash-overlay.active {
+  animation: flash-pulse 0.8s ease-out forwards;
+}
+
+.burst {
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  transform: translate(-50%, -50%);
+  animation: burst-pop var(--burst-duration, 1.2s) ease-out forwards;
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.28));
+}
+
+.burst .sparkle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 16px;
+  color: var(--burst-color, var(--gold-300));
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
+  animation: sparkle-drift 1.05s ease-out forwards;
+  opacity: 0;
+}
+
+.burst.bronze .sparkle {
+  color: #ffd49a;
+  animation-name: sparkle-drift-bronze;
+}
+
+.burst.silver .sparkle {
+  color: #f5f7ff;
+  animation-name: sparkle-drift-silver;
+}
+
+.burst.gold .sparkle {
+  color: #fff2b5;
+  animation-name: sparkle-drift-gold;
+}
+
+.burst.platinum .sparkle {
+  color: #e8f4ff;
+  animation-name: sparkle-drift-platinum;
+}
+
+.burst.diamond .sparkle {
+  color: #fef4c7;
+  animation-name: sparkle-drift-diamond;
+}
+
+@keyframes burst-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.25);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-drift {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(0.95) rotate(180deg);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-drift-bronze {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.05) rotate(160deg);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-drift-silver {
+  0% {
+    transform: translate(-50%, -50%) scale(0.15) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.02) rotate(220deg);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-drift-gold {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.15) rotate(210deg);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-drift-platinum {
+  0% {
+    transform: translate(-50%, -50%) scale(0.18) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.08) rotate(260deg);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-drift-diamond {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1.25) rotate(320deg);
+    opacity: 0;
+  }
+}
+
 /* ==========================================================================
    Layout
    ========================================================================== */
@@ -226,6 +390,21 @@ body {
     0 0 0 2px rgba(0, 0, 0, 0.25) inset,
     var(--shadow-deep),
     0 0 40px rgba(205, 162, 51, 0.25);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.wheel-ring.win-glow {
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.25) inset,
+    var(--shadow-deep),
+    0 0 0 6px rgba(255, 242, 181, 0.18),
+    0 0 60px rgba(255, 214, 102, 0.55),
+    0 0 120px rgba(255, 255, 255, 0.18);
+  transform: scale(1.01);
+}
+
+.wheel-ring.shake {
+  animation: wheel-shake 0.35s ease-out;
 }
 
 .wheel-ring::after {
@@ -444,6 +623,10 @@ footer.site-footer {
   pointer-events: auto;
 }
 
+.overlay.visible .locket {
+  animation: locket-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .locket {
   width: min(92vw, 400px);
   border-radius: 22px;
@@ -601,6 +784,52 @@ footer.site-footer {
   to {
     transform: translateY(115vh) rotate(var(--rot, 180deg));
     opacity: 0;
+  }
+}
+
+@keyframes locket-pop {
+  0% {
+    transform: scale(0.8) rotateX(16deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03) rotateX(-3deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes flash-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  20% {
+    opacity: 0.9;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes wheel-shake {
+  0%,
+  100% {
+    transform: translateX(0) scale(1.01);
+  }
+  25% {
+    transform: translateX(-3px) scale(1.012);
+  }
+  50% {
+    transform: translateX(3px) scale(1.014);
+  }
+  75% {
+    transform: translateX(-2px) scale(1.012);
   }
 }
 
