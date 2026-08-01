@@ -23,7 +23,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'lamour2026';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'cdl-wheel-of-love-secret-change-me';
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://saisuhas481_db_user:saisuhas481_db_user@wheeloflove.3funje4.mongodb.net/?appName=Wheeloflove';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://saisuhas481_db_user:wheeloflove_cdl@ac-wnyzzem-shard-00-00.3funje4.mongodb.net:27017,ac-wnyzzem-shard-00-01.3funje4.mongodb.net:27017,ac-wnyzzem-shard-00-02.3funje4.mongodb.net:27017/?ssl=true&replicaSet=atlas-x1zzre-shard-0&authSource=admin&appName=Wheeloflove';
 
 const DATA_DIR = path.join(__dirname, 'data');
 const SEGMENTS_FILE = path.join(DATA_DIR, 'segments.json');
