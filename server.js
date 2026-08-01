@@ -38,7 +38,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 // .env file. There is deliberately no fallback for MONGODB_URI: a real
 // database connection string must never live in source control.
 const DEV_FALLBACKS = {
-  ADMIN_PASSWORD: 'lamour2026',
+  ADMIN_PASSWORD: 'change-this-password',
   SESSION_SECRET: 'dev-only-insecure-secret-change-me',
 };
 
