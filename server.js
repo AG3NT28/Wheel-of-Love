@@ -7,8 +7,10 @@
  *   3) Exposes a password-protected admin API to edit segments/probabilities
  *      and review the spin log.
  *
- * All state lives in flat JSON files under /data — good enough for a
- * single-café, single-event deployment, and trivial to inspect or back up.
+ * Segments live in a flat JSON file under /data — good enough for a
+ * single-café, single-event deployment. Spins and admin sessions live in
+ * MongoDB when configured, with a local-JSON / in-memory fallback so the
+ * app still works (degraded) if the database is briefly unreachable.
  */
 
 require('dotenv').config();
@@ -17,13 +19,49 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const mongoose = require('mongoose');
 
-const app = express();
+// ---------------------------------------------------------------------------
+// Environment / configuration
+// ---------------------------------------------------------------------------
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PRODUCTION = NODE_ENV === 'production';
 const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'lamour2026';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'cdl-wheel-of-love-secret-change-me';
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://saisuhas481_db_user:wheeloflove_cdl@ac-wnyzzem-shard-00-00.3funje4.mongodb.net:27017,ac-wnyzzem-shard-00-01.3funje4.mongodb.net:27017,ac-wnyzzem-shard-00-02.3funje4.mongodb.net:27017/?ssl=true&replicaSet=atlas-x1zzre-shard-0&authSource=admin&appName=Wheeloflove';
+
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const MONGODB_URI = process.env.MONGODB_URI;
+
+// Dev-only convenience defaults. These are NOT credentials for any real
+// service — just placeholders so `npm start` works locally without a
+// .env file. There is deliberately no fallback for MONGODB_URI: a real
+// database connection string must never live in source control.
+const DEV_FALLBACKS = {
+  ADMIN_PASSWORD: 'lamour2026',
+  SESSION_SECRET: 'dev-only-insecure-secret-change-me',
+};
+
+function validateEnv() {
+  const required = { MONGODB_URI, SESSION_SECRET, ADMIN_PASSWORD };
+  const missing = Object.entries(required)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (!missing.length) return;
+
+  if (IS_PRODUCTION) {
+    throw new Error(
+      `Missing required environment variable(s): ${missing.join(', ')}. ` +
+      'Set these in your hosting environment (e.g. Render → Environment) before starting the server.'
+    );
+  }
+
+  log('warn', `Missing environment variable(s): ${missing.join(', ')}. Using insecure development defaults — do NOT deploy this way.`);
+}
+
+const effectiveAdminPassword = ADMIN_PASSWORD || DEV_FALLBACKS.ADMIN_PASSWORD;
+const effectiveSessionSecret = SESSION_SECRET || DEV_FALLBACKS.SESSION_SECRET;
 
 const DATA_DIR = path.join(__dirname, 'data');
 const SEGMENTS_FILE = path.join(DATA_DIR, 'segments.json');
@@ -31,49 +69,12 @@ const DEFAULT_SEGMENTS_FILE = path.join(DATA_DIR, 'segments.default.json');
 const SPINS_FILE = path.join(DATA_DIR, 'spins.json');
 
 // ---------------------------------------------------------------------------
-// MongoDB Connection & Spin Schema
+// Logging
 // ---------------------------------------------------------------------------
-let mongoReady = false;
-
-async function initializeMongo() {
-  if (!MONGODB_URI) return false;
-  try {
-    await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 2000,
-      socketTimeoutMS: 2000,
-    });
-    mongoReady = mongoose.connection.readyState === 1;
-    if (mongoReady) {
-      console.log('MongoDB connected');
-    }
-    return mongoReady;
-  } catch (err) {
-    mongoReady = false;
-    console.warn('MongoDB connection warning:', err.message);
-    console.warn('Spin log and sessions will use local fallback storage until MongoDB connects.');
-    return false;
-  }
-}
-
-initializeMongo();
-
-const spinSchema = new mongoose.Schema({
-  id: { type: String, unique: true, required: true },
-  code: { type: String, required: true },
-  segmentId: { type: String, required: true },
-  segmentLabel: { type: String, required: true },
-  name: String,
-  phone: String,
-  timestamp: { type: String, required: true },
-}, { timestamps: false });
-
-const Spin = mongoose.model('Spin', spinSchema);
-
-// Fallback storage if MongoDB isn't connected
-let spinsFallback = readJSON(SPINS_FILE, []);
-
-function persistSpinsFallback() {
-  writeJSON(SPINS_FILE, spinsFallback);
+function log(level, ...args) {
+  const stamp = new Date().toISOString();
+  const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+  fn(`[${stamp}] [${level}]`, ...args);
 }
 
 // ---------------------------------------------------------------------------
@@ -97,45 +98,6 @@ function getSegments() {
 
 function saveSegments(segments) {
   writeJSON(SEGMENTS_FILE, segments);
-}
-
-async function getSpins() {
-  try {
-    if (mongoReady && mongoose.connection.readyState === 1) {
-      const spins = await Spin.find({}).sort({ timestamp: -1 }).lean();
-      spinsFallback = spins;
-      persistSpinsFallback();
-      return spins;
-    }
-  } catch (err) {
-    console.error('Error reading spins from MongoDB:', err.message);
-  }
-  spinsFallback = readJSON(SPINS_FILE, []);
-  return spinsFallback;
-}
-
-async function saveSpin(spin) {
-  try {
-    if (mongoReady && mongoose.connection.readyState === 1) {
-      await Spin.updateOne({ id: spin.id }, spin, { upsert: true });
-    }
-  } catch (err) {
-    console.error('Error saving spin to MongoDB:', err.message);
-  }
-  spinsFallback.unshift(spin);
-  persistSpinsFallback();
-}
-
-async function clearSpins() {
-  try {
-    if (mongoReady && mongoose.connection.readyState === 1) {
-      await Spin.deleteMany({});
-    }
-  } catch (err) {
-    console.error('Error clearing spins from MongoDB:', err.message);
-  }
-  spinsFallback = [];
-  persistSpinsFallback();
 }
 
 function generateCode() {
@@ -170,224 +132,422 @@ function validateSegment(seg) {
   return true;
 }
 
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
 // ---------------------------------------------------------------------------
-// Middleware
+// MongoDB connection & spin schema
 // ---------------------------------------------------------------------------
-app.use(express.json({ limit: '256kb' }));
+let mongoReady = false;
 
-// Setup session store
-const sessionConfig = {
-  name: 'wol.sid',
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 12 * 60 * 60 * 1000, // 12 hours — comfortably covers one event day
-    httpOnly: true,
-    sameSite: 'lax',
-  },
-};
+const spinSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  code: { type: String, required: true },
+  segmentId: { type: String, required: true },
+  segmentLabel: { type: String, required: true },
+  name: String,
+  phone: String,
+  timestamp: { type: String, required: true },
+}, { timestamps: false });
 
-const sessionStore = new session.MemoryStore();
+const Spin = mongoose.model('Spin', spinSchema);
 
-const initializeSessionStore = async () => {
-  const connected = await initializeMongo();
-  if (connected) {
-    console.log('MongoDB available for spins; sessions remain in memory for reliability.');
-  } else {
-    console.warn('MongoDB unavailable; sessions will stay in memory.');
+// Fallback storage if MongoDB isn't connected
+let spinsFallback = readJSON(SPINS_FILE, []);
+
+function persistSpinsFallback() {
+  writeJSON(SPINS_FILE, spinsFallback);
+}
+
+// These fire on every state change for the life of the process, so they
+// cover automatic reconnection after a dropped connection — not just the
+// initial connect attempt at boot.
+mongoose.connection.on('connected', () => {
+  mongoReady = true;
+  log('info', '[mongo] connected');
+});
+
+mongoose.connection.on('disconnected', () => {
+  mongoReady = false;
+  log('warn', '[mongo] disconnected — spins will use local JSON storage until it reconnects');
+});
+
+mongoose.connection.on('reconnected', () => {
+  mongoReady = true;
+  log('info', '[mongo] reconnected');
+});
+
+mongoose.connection.on('error', (err) => {
+  log('error', '[mongo] connection error:', err.message);
+});
+
+async function connectMongo() {
+  if (!MONGODB_URI) {
+    log('warn', '[mongo] No MONGODB_URI configured — spins will be stored locally in JSON, and admin sessions will use in-memory storage (will not survive restarts).');
+    return false;
   }
-};
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    mongoReady = mongoose.connection.readyState === 1;
+    return mongoReady;
+  } catch (err) {
+    mongoReady = false;
+    log('error', '[mongo] initial connection failed:', err.message);
+    log('warn', '[mongo] the driver will keep retrying in the background; spins/sessions use local fallback until it succeeds.');
+    return false;
+  }
+}
 
-sessionConfig.store = sessionStore;
-app.use(session(sessionConfig));
-app.use(express.static(path.join(__dirname, 'public')));
-initializeSessionStore();
+async function getSpins() {
+  try {
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      const spins = await Spin.find({}).sort({ timestamp: -1 }).lean();
+      spinsFallback = spins;
+      persistSpinsFallback();
+      return spins;
+    }
+  } catch (err) {
+    log('error', 'Error reading spins from MongoDB:', err.message);
+  }
+  spinsFallback = readJSON(SPINS_FILE, []);
+  return spinsFallback;
+}
+
+async function saveSpin(spin) {
+  try {
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      await Spin.updateOne({ id: spin.id }, spin, { upsert: true });
+    }
+  } catch (err) {
+    log('error', 'Error saving spin to MongoDB:', err.message);
+  }
+  spinsFallback.unshift(spin);
+  persistSpinsFallback();
+}
+
+async function clearSpins() {
+  try {
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      await Spin.deleteMany({});
+    }
+  } catch (err) {
+    log('error', 'Error clearing spins from MongoDB:', err.message);
+  }
+  spinsFallback = [];
+  persistSpinsFallback();
+}
+
+// ---------------------------------------------------------------------------
+// Express app
+// ---------------------------------------------------------------------------
+const app = express();
 
 function requireAdmin(req, res, next) {
   if (req.session && req.session.isAdmin) return next();
   return res.status(401).json({ error: 'Not authenticated.' });
 }
 
-function asyncHandler(fn) {
-  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+function registerRoutes() {
+  // Lightweight centralized request logging.
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      log('info', `${req.method} ${req.originalUrl} → ${res.statusCode} (${Date.now() - start}ms)`);
+    });
+    next();
+  });
+
+  // -------------------------------------------------------------------------
+  // Public API
+  // -------------------------------------------------------------------------
+
+  // Wheel-facing data only: no weights, no reward copy (kept as a surprise).
+  app.get('/api/segments', (req, res) => {
+    const segments = getSegments()
+      .filter((s) => s.active)
+      .sort((a, b) => a.order - b.order)
+      .map((s) => ({
+        id: s.id,
+        label: s.label,
+        shortLabel: s.shortLabel || s.label,
+        icon: s.icon || 'star',
+        color: s.color,
+        colorLight: s.colorLight || s.color,
+      }));
+    res.json({ segments });
+  });
+
+  app.post('/api/spin', asyncHandler(async (req, res) => {
+    const segments = getSegments()
+      .filter((s) => s.active)
+      .sort((a, b) => a.order - b.order);
+
+    const winner = weightedPick(segments);
+    if (!winner) {
+      return res.status(409).json({ error: 'The wheel has no active prizes configured right now.' });
+    }
+
+    const index = segments.findIndex((s) => s.id === winner.id);
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 80) : '';
+    const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim().slice(0, 20) : '';
+    const code = generateCode();
+    const spinId = crypto.randomUUID();
+
+    const spin = {
+      id: spinId,
+      code,
+      segmentId: winner.id,
+      segmentLabel: winner.label,
+      name,
+      phone,
+      timestamp: new Date().toISOString(),
+    };
+
+    await saveSpin(spin);
+
+    res.json({
+      index,
+      segmentCount: segments.length,
+      result: {
+        id: winner.id,
+        label: winner.label,
+        shortLabel: winner.shortLabel || winner.label,
+        icon: winner.icon || 'star',
+        color: winner.color,
+        colorLight: winner.colorLight || winner.color,
+        todayReward: winner.todayReward || '',
+        futureReward: winner.futureReward || '',
+        validityDays: winner.validityDays || 90,
+        code,
+      },
+    });
+  }));
+
+  // -------------------------------------------------------------------------
+  // Admin auth
+  // -------------------------------------------------------------------------
+  app.post('/api/admin/login', (req, res) => {
+    const { password } = req.body || {};
+    if (password && password === effectiveAdminPassword) {
+      req.session.isAdmin = true;
+      return res.json({ ok: true });
+    }
+    return res.status(401).json({ error: 'Incorrect password.' });
+  });
+
+  app.post('/api/admin/logout', (req, res) => {
+    req.session.destroy(() => res.json({ ok: true }));
+  });
+
+  app.get('/api/admin/check', (req, res) => {
+    res.json({ authenticated: !!(req.session && req.session.isAdmin) });
+  });
+
+  // -------------------------------------------------------------------------
+  // Admin: segments (full detail, editable)
+  // -------------------------------------------------------------------------
+  app.get('/api/admin/segments', requireAdmin, (req, res) => {
+    const segments = getSegments().sort((a, b) => a.order - b.order);
+    res.json({ segments });
+  });
+
+  app.put('/api/admin/segments', requireAdmin, (req, res) => {
+    const incoming = req.body?.segments;
+    if (!Array.isArray(incoming) || incoming.length === 0) {
+      return res.status(400).json({ error: 'Provide a non-empty array of segments.' });
+    }
+    for (const seg of incoming) {
+      if (!validateSegment(seg)) {
+        return res.status(400).json({ error: `Invalid segment data for "${seg?.label || 'unnamed'}".` });
+      }
+    }
+
+    const cleaned = incoming.map((seg, i) => ({
+      id: seg.id || `seg-${Date.now()}-${i}`,
+      order: i,
+      active: seg.active !== false,
+      label: seg.label.trim(),
+      shortLabel: (seg.shortLabel || seg.label).trim(),
+      icon: seg.icon === 'diamond' ? 'diamond' : 'star',
+      color: seg.color,
+      colorLight: /^#[0-9A-Fa-f]{6}$/.test(seg.colorLight) ? seg.colorLight : seg.color,
+      weight: Math.max(0, Number(seg.weight) || 0),
+      todayReward: (seg.todayReward || '').toString().slice(0, 200),
+      futureReward: (seg.futureReward || '').toString().slice(0, 220),
+      validityDays: Math.max(1, Number(seg.validityDays) || 90),
+    }));
+
+    saveSegments(cleaned);
+    res.json({ segments: cleaned });
+  });
+
+  app.post('/api/admin/segments/reset', requireAdmin, (req, res) => {
+    const defaults = readJSON(DEFAULT_SEGMENTS_FILE, []);
+    saveSegments(defaults);
+    res.json({ segments: defaults });
+  });
+
+  // -------------------------------------------------------------------------
+  // Admin: spin log
+  // -------------------------------------------------------------------------
+  app.get('/api/admin/spins', requireAdmin, asyncHandler(async (req, res) => {
+    const spins = await getSpins();
+    const counts = {};
+    for (const s of spins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
+    res.json({ spins, total: spins.length, counts });
+  }));
+
+  app.delete('/api/admin/spins', requireAdmin, asyncHandler(async (req, res) => {
+    await clearSpins();
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/admin/spins/export', requireAdmin, asyncHandler(async (req, res) => {
+    const spins = await getSpins();
+    const header = 'Timestamp,Name,Phone,Prize,Code\n';
+    const rows = spins
+      .map((s) => {
+        const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
+        return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
+      })
+      .join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
+    res.send(header + rows);
+  }));
+
+  // Centralized error handler — always last.
+  app.use((err, req, res, next) => {
+    if (res.headersSent) {
+      log('error', `Unhandled error after headers sent on ${req.method} ${req.originalUrl}:`, err?.message || err);
+      return;
+    }
+
+    log('error', `Unhandled error on ${req.method} ${req.originalUrl}:`, err?.stack || err?.message || err);
+    res.status(err?.statusCode || 500).json({
+      error: IS_PRODUCTION
+        ? 'Something went wrong. Please try again later.'
+        : err?.message || 'Something went wrong. Please try again later.',
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Startup sequence: validate env → connect to MongoDB → configure Express →
+// start listening. Keeping this order means the session store and spin
+// storage know whether Mongo is available before the app starts accepting
+// traffic, instead of racing an async connection against incoming requests.
 // ---------------------------------------------------------------------------
+let httpServer = null;
 
-// Wheel-facing data only: no weights, no reward copy (kept as a surprise).
-app.get('/api/segments', (req, res) => {
-  const segments = getSegments()
-    .filter((s) => s.active)
-    .sort((a, b) => a.order - b.order)
-    .map((s) => ({
-      id: s.id,
-      label: s.label,
-      shortLabel: s.shortLabel || s.label,
-      icon: s.icon || 'star',
-      color: s.color,
-      colorLight: s.colorLight || s.color,
-    }));
-  res.json({ segments });
-});
+async function main() {
+  validateEnv();
 
-app.post('/api/spin', asyncHandler(async (req, res) => {
-  const segments = getSegments()
-    .filter((s) => s.active)
-    .sort((a, b) => a.order - b.order);
+  const mongoConnected = await connectMongo();
 
-  const winner = weightedPick(segments);
-  if (!winner) {
-    return res.status(409).json({ error: 'The wheel has no active prizes configured right now.' });
+  // connect-mongo manages its own MongoClient independently of mongoose, so
+  // it will keep retrying in the background even if the connectMongo()
+  // attempt above hasn't succeeded yet by the time we boot.
+  const sessionStore = MONGODB_URI
+    ? MongoStore.create({
+        mongoUrl: MONGODB_URI,
+        collectionName: 'sessions',
+        ttl: 12 * 60 * 60, // seconds — matches the cookie maxAge below
+        touchAfter: 60 * 60, // only rewrite the session doc at most once/hour on reads
+        autoRemove: 'native', // let MongoDB expire old sessions via a TTL index
+      })
+    : new session.MemoryStore();
+
+  if (MONGODB_URI) {
+    sessionStore.on('error', (err) => log('error', '[session-store] error:', err.message));
   }
 
-  const index = segments.findIndex((s) => s.id === winner.id);
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 80) : '';
-  const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim().slice(0, 20) : '';
-  const code = generateCode();
-  const spinId = crypto.randomUUID();
+  // Render (and most PaaS hosts) terminate TLS at a proxy in front of the
+  // app, so Express needs to trust the X-Forwarded-* headers to correctly
+  // detect HTTPS — required for `cookie.secure: 'auto'` to behave properly.
+  app.set('trust proxy', 1);
 
-  const spin = {
-    id: spinId,
-    code,
-    segmentId: winner.id,
-    segmentLabel: winner.label,
-    name,
-    phone,
-    timestamp: new Date().toISOString(),
+  app.use(express.json({ limit: '256kb' }));
+  app.use(session({
+    name: 'wol.sid',
+    secret: effectiveSessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    store: sessionStore,
+    cookie: {
+      maxAge: 12 * 60 * 60 * 1000, // 12 hours — comfortably covers one event day
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: 'auto', // sends the cookie over HTTPS only when the connection is actually secure
+    },
+  }));
+  app.use(express.static(path.join(__dirname, 'public')));
+
+  registerRoutes();
+
+  httpServer = app.listen(PORT, () => {
+    log('info', `Wheel of Love running → http://localhost:${PORT}`);
+    log('info', `Admin dashboard        → http://localhost:${PORT}/admin.html`);
+    log('info', `MongoDB status         → ${mongoConnected ? 'connected' : 'unavailable at boot (using local fallback, will keep retrying)'}`);
+  });
+
+  httpServer.on('error', (err) => {
+    log('error', '[http] server error:', err.message);
+    process.exit(1);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+function shutdown(signal) {
+  log('info', `received ${signal}, shutting down gracefully...`);
+
+  const forceExitTimer = setTimeout(() => {
+    log('error', 'graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 10_000);
+  forceExitTimer.unref();
+
+  const finish = async (exitCode) => {
+    try {
+      await mongoose.connection.close();
+      log('info', '[mongo] connection closed');
+    } catch (err) {
+      log('error', '[mongo] error while closing connection:', err.message);
+    } finally {
+      clearTimeout(forceExitTimer);
+      process.exit(exitCode);
+    }
   };
 
-  await saveSpin(spin);
-
-  res.json({
-    index,
-    segmentCount: segments.length,
-    result: {
-      id: winner.id,
-      label: winner.label,
-      shortLabel: winner.shortLabel || winner.label,
-      icon: winner.icon || 'star',
-      color: winner.color,
-      colorLight: winner.colorLight || winner.color,
-      todayReward: winner.todayReward || '',
-      futureReward: winner.futureReward || '',
-      validityDays: winner.validityDays || 90,
-      code,
-    },
-  });
-}));
-
-// ---------------------------------------------------------------------------
-// Admin auth
-// ---------------------------------------------------------------------------
-app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body || {};
-  if (password && password === ADMIN_PASSWORD) {
-    req.session.isAdmin = true;
-    return res.json({ ok: true });
+  if (httpServer) {
+    httpServer.close((err) => {
+      if (err) log('error', '[http] error while closing server:', err.message);
+      finish(err ? 1 : 0);
+    });
+  } else {
+    finish(0);
   }
-  return res.status(401).json({ error: 'Incorrect password.' });
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+process.on('unhandledRejection', (reason) => {
+  log('error', 'unhandled promise rejection:', reason);
 });
 
-app.post('/api/admin/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+process.on('uncaughtException', (err) => {
+  log('error', 'uncaught exception:', err?.stack || err?.message || err);
+  process.exit(1);
 });
 
-app.get('/api/admin/check', (req, res) => {
-  res.json({ authenticated: !!(req.session && req.session.isAdmin) });
-});
-
-// ---------------------------------------------------------------------------
-// Admin: segments (full detail, editable)
-// ---------------------------------------------------------------------------
-app.get('/api/admin/segments', requireAdmin, (req, res) => {
-  const segments = getSegments().sort((a, b) => a.order - b.order);
-  res.json({ segments });
-});
-
-app.put('/api/admin/segments', requireAdmin, (req, res) => {
-  const incoming = req.body?.segments;
-  if (!Array.isArray(incoming) || incoming.length === 0) {
-    return res.status(400).json({ error: 'Provide a non-empty array of segments.' });
-  }
-  for (const seg of incoming) {
-    if (!validateSegment(seg)) {
-      return res.status(400).json({ error: `Invalid segment data for "${seg?.label || 'unnamed'}".` });
-    }
-  }
-
-  const cleaned = incoming.map((seg, i) => ({
-    id: seg.id || `seg-${Date.now()}-${i}`,
-    order: i,
-    active: seg.active !== false,
-    label: seg.label.trim(),
-    shortLabel: (seg.shortLabel || seg.label).trim(),
-    icon: seg.icon === 'diamond' ? 'diamond' : 'star',
-    color: seg.color,
-    colorLight: /^#[0-9A-Fa-f]{6}$/.test(seg.colorLight) ? seg.colorLight : seg.color,
-    weight: Math.max(0, Number(seg.weight) || 0),
-    todayReward: (seg.todayReward || '').toString().slice(0, 200),
-    futureReward: (seg.futureReward || '').toString().slice(0, 220),
-    validityDays: Math.max(1, Number(seg.validityDays) || 90),
-  }));
-
-  saveSegments(cleaned);
-  res.json({ segments: cleaned });
-});
-
-app.post('/api/admin/segments/reset', requireAdmin, (req, res) => {
-  const defaults = readJSON(DEFAULT_SEGMENTS_FILE, []);
-  saveSegments(defaults);
-  res.json({ segments: defaults });
-});
-
-// ---------------------------------------------------------------------------
-// Admin: spin log
-// ---------------------------------------------------------------------------
-app.get('/api/admin/spins', requireAdmin, asyncHandler(async (req, res) => {
-  const spins = await getSpins();
-  const counts = {};
-  for (const s of spins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
-  res.json({ spins, total: spins.length, counts });
-}));
-
-app.delete('/api/admin/spins', requireAdmin, asyncHandler(async (req, res) => {
-  await clearSpins();
-  res.json({ ok: true });
-}));
-
-app.get('/api/admin/spins/export', requireAdmin, asyncHandler(async (req, res) => {
-  const spins = await getSpins();
-  const header = 'Timestamp,Name,Phone,Prize,Code\n';
-  const rows = spins
-    .map((s) => {
-      const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
-      return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
-    })
-    .join('\n');
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
-  res.send(header + rows);
-}));
-
-app.use((err, req, res, next) => {
-  if (res.headersSent) {
-    console.error('Unhandled server error after headers were already sent:', err?.message || err);
-    return;
-  }
-
-  console.error('Unhandled server error:', err?.message || err);
-  res.status(err?.statusCode || 500).json({
-    error: process.env.NODE_ENV === 'production'
-      ? 'Something went wrong. Please try again later.'
-      : err?.message || 'Something went wrong. Please try again later.',
-  });
-});
-
-// ---------------------------------------------------------------------------
-app.listen(PORT, () => {
-  console.log(`Wheel of Love running → http://localhost:${PORT}`);
-  console.log(`Admin dashboard        → http://localhost:${PORT}/admin.html`);
+main().catch((err) => {
+  log('error', 'fatal startup error:', err.message);
+  process.exit(1);
 });

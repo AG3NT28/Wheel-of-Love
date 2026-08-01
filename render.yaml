@@ -10,3 +10,9 @@ services:
         value: production
       - key: PORT
         value: 3000
+      - key: MONGODB_URI
+        value: mongodb+srv://saisuhas481_db_user:saisuhas481_db_user@wheeloflove.3funje4.mongodb.net/?appName=Wheeloflove
+      - key: ADMIN_PASSWORD
+        value: change-this-password
+      - key: SESSION_SECRET
+        value: change-this-to-something-random
