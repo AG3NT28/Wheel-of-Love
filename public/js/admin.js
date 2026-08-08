@@ -22,6 +22,7 @@
   const logSearch = document.getElementById('log-search');
   const logPageSize = document.getElementById('log-page-size');
   const logPagination = document.getElementById('log-pagination');
+  const exportBtn = document.getElementById('export-btn');
   const resetStatus = document.getElementById('reset-status');
 
   let segments = [];
