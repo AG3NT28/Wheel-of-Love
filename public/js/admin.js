@@ -19,10 +19,18 @@
   const logTbody = document.getElementById('log-tbody');
   const logEmpty = document.getElementById('log-empty');
   const clearLogBtn = document.getElementById('clear-log-btn');
+  const logSearch = document.getElementById('log-search');
+  const logPageSize = document.getElementById('log-page-size');
+  const logPagination = document.getElementById('log-pagination');
+  const resetStatus = document.getElementById('reset-status');
 
   let segments = [];
   let dirty = false;
   let seq = 0;
+  let allSpins = [];
+  let currentPage = 1;
+  let currentQuery = '';
+  let pageSize = Number(logPageSize?.value || 10);
 
   // ---------------------------------------------------------------- utils
   function uid() {
@@ -351,44 +359,57 @@
       segments = data.segments;
       markSaved();
       renderSegments();
+      updateResetStatus();
     } catch (err) {
       alert(err.message);
     }
   });
 
+  function updateResetStatus() {
+    resetStatus.textContent = `Last reset: ${new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+  }
+
   // ---------------------------------------------------------------- log
   async function loadLog() {
     try {
       const data = await api('/api/admin/spins');
+      allSpins = data.spins;
       renderStats(data.spins, data.total, data.counts);
-      renderLog(data.spins);
+      renderLog(allSpins);
     } catch (err) {
       // silent — log tab is secondary
     }
   }
 
-  function renderStats(spins, total, counts) {
-    statsRow.innerHTML = '';
-    const items = [{ label: 'Total spins', value: total }];
-    segments.forEach((s) => {
-      items.push({ label: s.label, value: counts[s.id] || 0, color: s.color });
-    });
-    items.forEach((it) => {
-      const card = document.createElement('div');
-      card.className = 'stat-card';
-      card.innerHTML = `<div class="num" style="${it.color ? `color:${it.color}` : ''}">${it.value}</div><div class="lbl">${it.label}</div>`;
-      statsRow.appendChild(card);
+  function formatDate(timestamp) {
+    return new Date(timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function filterSpins(spins) {
+    const query = currentQuery.trim().toLowerCase();
+    if (!query) return spins;
+    return spins.filter((spin) => {
+      return [spin.name, spin.phone, spin.segmentLabel, spin.code]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query));
     });
   }
 
   function renderLog(spins) {
-    logTbody.innerHTML = '';
-    logEmpty.classList.toggle('hidden', spins.length > 0);
+    const filtered = filterSpins(spins);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    currentPage = Math.min(currentPage, totalPages);
+    const start = (currentPage - 1) * pageSize;
+    const pageSpins = filtered.slice(start, start + pageSize);
 
-    spins.forEach((s) => {
+    logTbody.innerHTML = '';
+    logEmpty.classList.toggle('hidden', pageSpins.length > 0);
+    logPagination.innerHTML = '';
+
+    pageSpins.forEach((s) => {
       const seg = segments.find((x) => x.id === s.segmentId);
       const tr = document.createElement('tr');
-      const time = new Date(s.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      const time = formatDate(s.timestamp);
       tr.innerHTML = `
         <td>${time}</td>
         <td>${escapeText(s.name) || '—'}</td>
@@ -399,6 +420,34 @@
       `;
       logTbody.appendChild(tr);
     });
+
+    renderPagination(totalPages);
+    if (exportBtn) exportBtn.classList.toggle('disabled', filtered.length === 0);
+    clearLogBtn.disabled = filtered.length === 0;
+  }
+
+  function renderPagination(totalPages) {
+    logPagination.innerHTML = '';
+    if (totalPages <= 1) return;
+
+    const addPageButton = (label, page, disabled = false, active = false) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.disabled = disabled;
+      if (active) button.classList.add('active');
+      button.addEventListener('click', () => {
+        currentPage = page;
+        renderLog(allSpins);
+      });
+      logPagination.appendChild(button);
+    };
+
+    addPageButton('«', 1, currentPage === 1);
+    for (let i = 1; i <= totalPages; i += 1) {
+      addPageButton(i.toString(), i, false, currentPage === i);
+    }
+    addPageButton('»', totalPages, currentPage === totalPages);
   }
 
   const logStatus = document.getElementById('log-status');
@@ -435,6 +484,18 @@
       showLogStatus(err.message, 'error');
       button.disabled = false;
     }
+  });
+
+  logSearch.addEventListener('input', () => {
+    currentQuery = logSearch.value;
+    currentPage = 1;
+    renderLog(allSpins);
+  });
+
+  logPageSize.addEventListener('change', () => {
+    pageSize = Number(logPageSize.value) || 10;
+    currentPage = 1;
+    renderLog(allSpins);
   });
 
   clearLogBtn.addEventListener('click', async () => {

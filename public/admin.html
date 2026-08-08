@@ -56,6 +56,7 @@
 
       <div class="save-bar">
         <span class="save-status" id="save-status">All changes saved</span>
+        <span class="reset-status" id="reset-status">Last reset: never</span>
         <div class="save-actions">
           <button class="btn btn-danger btn-sm" id="reset-btn">Reset to today's defaults</button>
           <button class="btn btn-gold" id="save-btn">Save changes</button>
@@ -73,7 +74,17 @@
 
         <div class="log-actions">
           <span class="panel-desc" style="margin:0;">Newest spins first. Resetting the wheel does not clear the spin history.</span>
-          <div style="display:flex; gap:8px;">
+          <div class="log-filter-row">
+            <input id="log-search" class="log-search" type="search" placeholder="Search guest, phone, prize, or code" />
+            <label class="log-page-size-label">Per page
+              <select id="log-page-size" class="log-page-size">
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             <a class="btn btn-ghost btn-sm" id="export-btn" href="/api/admin/spins/export">Export CSV</a>
             <button class="btn btn-danger btn-sm" id="clear-log-btn">Clear history</button>
           </div>
@@ -87,6 +98,7 @@
             </thead>
             <tbody id="log-tbody"></tbody>
           </table>
+          <div class="pagination" id="log-pagination"></div>
           <p class="empty-state hidden" id="log-empty">No spins recorded yet today.</p>
         </div>
       </div>
