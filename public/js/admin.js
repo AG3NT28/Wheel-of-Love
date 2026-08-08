@@ -31,6 +31,8 @@
   let currentPage = 1;
   let currentQuery = '';
   let pageSize = Number(logPageSize?.value || 10);
+  let logRefreshTimer = null;
+  const LOG_REFRESH_INTERVAL = 3000;
 
   // ---------------------------------------------------------------- utils
   function uid() {
@@ -479,7 +481,7 @@
     try {
       await api(`/api/admin/spins/${encodeURIComponent(spinId)}`, { method: 'DELETE' });
       showLogStatus('Spin log entry deleted successfully.');
-      loadLog();
+      scheduleLogRefresh();
     } catch (err) {
       showLogStatus(err.message, 'error');
       button.disabled = false;
@@ -502,11 +504,16 @@
     if (!confirm('Clear the entire spin history? This cannot be undone.')) return;
     try {
       await api('/api/admin/spins', { method: 'DELETE' });
-      loadLog();
+      scheduleLogRefresh();
     } catch (err) {
       alert(err.message);
     }
   });
+
+  function scheduleLogRefresh() {
+    clearTimeout(logRefreshTimer);
+    logRefreshTimer = setTimeout(loadLog, LOG_REFRESH_INTERVAL);
+  }
 
   // ---------------------------------------------------------------- escaping
   function escapeAttr(str) {
