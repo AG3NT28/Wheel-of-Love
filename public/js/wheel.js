@@ -12,7 +12,7 @@
   const flashOverlay = document.createElement('div');
   flashOverlay.className = 'flash-overlay';
   document.body.appendChild(flashOverlay);
-  const effectVersion = '20260801a';
+
 
   let segments = [];
   let cumulativeRotation = 0;

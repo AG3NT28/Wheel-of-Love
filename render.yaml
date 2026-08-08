@@ -11,7 +11,7 @@ services:
       - key: PORT
         value: 3000
       - key: MONGODB_URI
-        value: mongodb+srv://saisuhas481_db_user:wheeloflove_cdl@ac-wnyzzem-shard-00-00.3funje4.mongodb.net:27017,ac-wnyzzem-shard-00-01.3funje4.mongodb.net:27017,ac-wnyzzem-shard-00-02.3funje4.mongodb.net:27017/?ssl=true&replicaSet=atlas-x1zzre-shard-0&authSource=admin&appName=Wheeloflove
+        value: mongodb+srv://saisuhas481_db_user:wheeloflove_cdl@ac-wnyzzem.3funje4.mongodb.net/?appName=Wheeloflove
 
       - key: ADMIN_PASSWORD
         value: change-this-password

@@ -15,7 +15,7 @@
   },
   {
     "id": "silver",
-    "order": 0,
+    "order": 1,
     "active": true,
     "label": "Silver Tier",
     "shortLabel": "Silver",
@@ -29,7 +29,7 @@
   },
   {
     "id": "gold",
-    "order": 0,
+    "order": 2,
     "active": true,
     "label": "Gold Tier",
     "shortLabel": "Gold",
@@ -43,7 +43,7 @@
   },
   {
     "id": "platinum",
-    "order": 0,
+    "order": 3,
     "active": true,
     "label": "Platinum Tier",
     "shortLabel": "Platinum",
@@ -57,7 +57,7 @@
   },
   {
     "id": "diamond",
-    "order": 0,
+    "order": 4,
     "active": true,
     "label": "Diamond Tier",
     "shortLabel": "Diamond",

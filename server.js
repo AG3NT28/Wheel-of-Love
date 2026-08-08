@@ -150,7 +150,7 @@ const spinSchema = new mongoose.Schema({
   phone: String,
   todayReward: String,
   futureReward: String,
-  timestamp: { type: String, required: true },
+  timestamp: { type: Date, required: true },
 }, { timestamps: false });
 
 const Spin = mongoose.model('Spin', spinSchema);
@@ -208,9 +208,14 @@ async function getSpins() {
   try {
     if (mongoReady && mongoose.connection.readyState === 1) {
       const spins = await Spin.find({}).sort({ timestamp: -1 }).lean();
-      spinsFallback = spins;
+      // Normalize timestamp to ISO string for consistent frontend display
+      const normalized = spins.map((s) => ({
+        ...s,
+        timestamp: s.timestamp instanceof Date ? s.timestamp.toISOString() : s.timestamp,
+      }));
+      spinsFallback = normalized;
       persistSpinsFallback();
-      return spins;
+      return normalized;
     }
   } catch (err) {
     log('error', 'Error reading spins from MongoDB:', err.message);
@@ -308,7 +313,7 @@ function registerRoutes() {
       phone,
       todayReward: winner.todayReward || '',
       futureReward: winner.futureReward || '',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     };
 
     await saveSpin(spin);
@@ -410,6 +415,23 @@ function registerRoutes() {
     res.json({ ok: true });
   }));
 
+  // NOTE: /export must be registered BEFORE /:id to prevent 'export' being
+  // interpreted as a spin ID by the parameterised DELETE route below.
+  app.get('/api/admin/spins/export', requireAdmin, asyncHandler(async (req, res) => {
+    const spins = await getSpins();
+    const header = 'Name,Phone,Coupon Code,Rewards\n';
+    const rows = spins
+      .map((s) => {
+        const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
+        const rewardText = [s.todayReward, s.futureReward].filter(Boolean).join(' | ') || s.segmentLabel || '';
+        return [esc(s.name), esc(s.phone), esc(s.code), esc(rewardText)].join(',');
+      })
+      .join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
+    res.send(header + rows);
+  }));
+
   app.delete('/api/admin/spins/:id', requireAdmin, asyncHandler(async (req, res) => {
     const spinId = req.params.id;
     if (!spinId) {
@@ -427,21 +449,6 @@ function registerRoutes() {
     spinsFallback = spinsFallback.filter((spin) => spin.id !== spinId);
     persistSpinsFallback();
     res.json({ ok: true });
-  }));
-
-  app.get('/api/admin/spins/export', requireAdmin, asyncHandler(async (req, res) => {
-    const spins = await getSpins();
-    const header = 'Name,Phone,Coupon Code,Rewards\n';
-    const rows = spins
-      .map((s) => {
-        const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
-        const rewardText = [s.todayReward, s.futureReward].filter(Boolean).join(' | ') || s.segmentLabel || '';
-        return [esc(s.name), esc(s.phone), esc(s.code), esc(rewardText)].join(',');
-      })
-      .join('\n');
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="wheel-of-love-spins.csv"');
-    res.send(header + rows);
   }));
 
   // Centralized error handler — always last.

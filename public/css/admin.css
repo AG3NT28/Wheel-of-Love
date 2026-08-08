@@ -518,6 +518,13 @@ button.disabled {
   pointer-events: none;
 }
 
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
 .stat-card {
   border: 1px solid var(--line);
   border-radius: 10px;

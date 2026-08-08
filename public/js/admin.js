@@ -19,10 +19,10 @@
   const logTbody = document.getElementById('log-tbody');
   const logEmpty = document.getElementById('log-empty');
   const clearLogBtn = document.getElementById('clear-log-btn');
+  const exportBtn = document.getElementById('export-btn');
   const logSearch = document.getElementById('log-search');
   const logPageSize = document.getElementById('log-page-size');
   const logPagination = document.getElementById('log-pagination');
-  const exportBtn = document.getElementById('export-btn');
   const resetStatus = document.getElementById('reset-status');
 
   let segments = [];
@@ -100,11 +100,11 @@
     dashboardView.classList.add('hidden');
   }
 
-  function showDashboard() {
+  async function showDashboard() {
     loginView.classList.add('hidden');
     dashboardView.classList.remove('hidden');
-    loadSegments();
-    loadLog();
+    await loadSegments();
+    await loadLog();
   }
 
   loginForm.addEventListener('submit', async (e) => {
@@ -145,6 +145,13 @@
       segments = data.segments;
       markSaved();
       renderSegments();
+      // Re-render log stats once segments are available (segment names/colors needed)
+      if (allSpins.length) {
+        const counts = {};
+        for (const s of allSpins) counts[s.segmentId] = (counts[s.segmentId] || 0) + 1;
+        renderStats(allSpins, allSpins.length, counts);
+        renderLog(allSpins);
+      }
     } catch (err) {
       saveStatus.textContent = err.message;
       saveStatus.className = 'save-status dirty';
@@ -374,13 +381,51 @@
 
   // ---------------------------------------------------------------- log
   async function loadLog() {
+    // Show loading indicator
+    if (logTbody) {
+      logTbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--ink-soft);">Loading spin history…</td></tr>';
+    }
+    if (logEmpty) logEmpty.classList.add('hidden');
+
     try {
       const data = await api('/api/admin/spins');
-      allSpins = data.spins;
-      renderStats(data.spins, data.total, data.counts);
+      allSpins = data.spins || [];
+      renderStats(allSpins, data.total || 0, data.counts || {});
       renderLog(allSpins);
     } catch (err) {
-      // silent — log tab is secondary
+      // Show error feedback in the log area
+      if (logTbody) {
+        logTbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger);">Failed to load spin history: ${err.message}</td></tr>`;
+      }
+      console.error('[loadLog] error:', err);
+    }
+  }
+
+  function renderStats(spins = [], total = 0, counts = {}) {
+    if (!statsRow) return;
+    statsRow.innerHTML = '';
+
+    const totalCard = document.createElement('div');
+    totalCard.className = 'stat-card';
+    totalCard.innerHTML = `
+      <div class="num">${total || spins.length || 0}</div>
+      <div class="lbl">Total Spins</div>
+    `;
+    statsRow.appendChild(totalCard);
+
+    if (segments && segments.length) {
+      segments.forEach((seg) => {
+        const count = counts[seg.id] !== undefined
+          ? counts[seg.id]
+          : spins.filter((s) => s.segmentId === seg.id).length;
+        const card = document.createElement('div');
+        card.className = 'stat-card';
+        card.innerHTML = `
+          <div class="num">${count}</div>
+          <div class="lbl">${escapeText(seg.label)}</div>
+        `;
+        statsRow.appendChild(card);
+      });
     }
   }
 
@@ -406,8 +451,20 @@
     const pageSpins = filtered.slice(start, start + pageSize);
 
     logTbody.innerHTML = '';
-    logEmpty.classList.toggle('hidden', pageSpins.length > 0);
     logPagination.innerHTML = '';
+
+    // Show correct empty state message
+    const noSpinsAtAll = spins.length === 0;
+    const noResults = !noSpinsAtAll && filtered.length === 0;
+    if (noSpinsAtAll) {
+      logEmpty.textContent = 'No spins recorded yet today.';
+      logEmpty.classList.remove('hidden');
+    } else if (noResults) {
+      logEmpty.textContent = 'No results match your search.';
+      logEmpty.classList.remove('hidden');
+    } else {
+      logEmpty.classList.add('hidden');
+    }
 
     pageSpins.forEach((s) => {
       const seg = segments.find((x) => x.id === s.segmentId);
@@ -425,8 +482,9 @@
     });
 
     renderPagination(totalPages);
-    if (exportBtn) exportBtn.classList.toggle('disabled', filtered.length === 0);
-    clearLogBtn.disabled = filtered.length === 0;
+    if (exportBtn) exportBtn.classList.toggle('disabled', spins.length === 0);
+    // Only disable clear when there are truly no spins at all, not just filtered out
+    clearLogBtn.disabled = spins.length === 0;
   }
 
   function renderPagination(totalPages) {
