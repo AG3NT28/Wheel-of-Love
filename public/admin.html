@@ -72,17 +72,18 @@
         <div class="stats-row" id="stats-row"></div>
 
         <div class="log-actions">
-          <span class="panel-desc" style="margin:0;">Newest spins first.</span>
+          <span class="panel-desc" style="margin:0;">Newest spins first. Resetting the wheel does not clear the spin history.</span>
           <div style="display:flex; gap:8px;">
             <a class="btn btn-ghost btn-sm" id="export-btn" href="/api/admin/spins/export">Export CSV</a>
             <button class="btn btn-danger btn-sm" id="clear-log-btn">Clear history</button>
           </div>
         </div>
+        <div class="log-status hidden" id="log-status"></div>
 
         <div class="log-wrap">
           <table class="log-table">
             <thead>
-              <tr><th>Time</th><th>Guest</th><th>Phone</th><th>Prize</th><th>Code</th></tr>
+              <tr><th>Time</th><th>Guest</th><th>Phone</th><th>Prize</th><th>Code</th><th>Action</th></tr>
             </thead>
             <tbody id="log-tbody"></tbody>
           </table>

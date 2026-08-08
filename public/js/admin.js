@@ -395,10 +395,47 @@
         <td>${escapeText(s.phone) || '—'}</td>
         <td><span class="tag" style="background:${seg ? seg.color : '#999'}">${escapeText(s.segmentLabel)}</span></td>
         <td>${escapeText(s.code)}</td>
+        <td><button type="button" class="btn btn-ghost btn-sm delete-spin-btn" data-id="${escapeAttr(s.id)}">Delete</button></td>
       `;
       logTbody.appendChild(tr);
     });
   }
+
+  const logStatus = document.getElementById('log-status');
+
+  function showLogStatus(message, type = 'success') {
+    logStatus.textContent = message;
+    logStatus.classList.remove('hidden');
+    logStatus.style.background = type === 'error'
+      ? 'rgba(220, 53, 69, 0.08)'
+      : 'rgba(40, 167, 69, 0.08)';
+    logStatus.style.borderColor = type === 'error'
+      ? 'rgba(220, 53, 69, 0.2)'
+      : 'rgba(40, 167, 69, 0.2)';
+    logStatus.style.color = type === 'error' ? '#6a1c24' : '#214f24';
+    setTimeout(() => {
+      logStatus.classList.add('hidden');
+    }, 3000);
+  }
+
+  logTbody.addEventListener('click', async (event) => {
+    const button = event.target.closest('.delete-spin-btn');
+    if (!button) return;
+
+    const spinId = button.dataset.id;
+    if (!spinId) return;
+    if (!confirm('Delete this spin log entry? This cannot be undone.')) return;
+
+    button.disabled = true;
+    try {
+      await api(`/api/admin/spins/${encodeURIComponent(spinId)}`, { method: 'DELETE' });
+      showLogStatus('Spin log entry deleted successfully.');
+      loadLog();
+    } catch (err) {
+      showLogStatus(err.message, 'error');
+      button.disabled = false;
+    }
+  });
 
   clearLogBtn.addEventListener('click', async () => {
     if (!confirm('Clear the entire spin history? This cannot be undone.')) return;

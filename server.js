@@ -19,7 +19,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
-const MongoStore = require('connect-mongo');
+const MongoStore = require('connect-mongo').default || require('connect-mongo');
 const mongoose = require('mongoose');
 
 // ---------------------------------------------------------------------------
@@ -148,6 +148,8 @@ const spinSchema = new mongoose.Schema({
   segmentLabel: { type: String, required: true },
   name: String,
   phone: String,
+  todayReward: String,
+  futureReward: String,
   timestamp: { type: String, required: true },
 }, { timestamps: false });
 
@@ -304,6 +306,8 @@ function registerRoutes() {
       segmentLabel: winner.label,
       name,
       phone,
+      todayReward: winner.todayReward || '',
+      futureReward: winner.futureReward || '',
       timestamp: new Date().toISOString(),
     };
 
@@ -406,13 +410,33 @@ function registerRoutes() {
     res.json({ ok: true });
   }));
 
+  app.delete('/api/admin/spins/:id', requireAdmin, asyncHandler(async (req, res) => {
+    const spinId = req.params.id;
+    if (!spinId) {
+      return res.status(400).json({ error: 'Missing spin ID.' });
+    }
+
+    try {
+      if (mongoReady && mongoose.connection.readyState === 1) {
+        await Spin.deleteOne({ id: spinId });
+      }
+    } catch (err) {
+      log('error', 'Error deleting spin from MongoDB:', err.message);
+    }
+
+    spinsFallback = spinsFallback.filter((spin) => spin.id !== spinId);
+    persistSpinsFallback();
+    res.json({ ok: true });
+  }));
+
   app.get('/api/admin/spins/export', requireAdmin, asyncHandler(async (req, res) => {
     const spins = await getSpins();
-    const header = 'Timestamp,Name,Phone,Prize,Code\n';
+    const header = 'Name,Phone,Coupon Code,Rewards\n';
     const rows = spins
       .map((s) => {
         const esc = (v) => `"${String(v || '').replace(/"/g, '""')}"`;
-        return [esc(s.timestamp), esc(s.name), esc(s.phone), esc(s.segmentLabel), esc(s.code)].join(',');
+        const rewardText = [s.todayReward, s.futureReward].filter(Boolean).join(' | ') || s.segmentLabel || '';
+        return [esc(s.name), esc(s.phone), esc(s.code), esc(rewardText)].join(',');
       })
       .join('\n');
     res.setHeader('Content-Type', 'text/csv');
@@ -452,8 +476,8 @@ async function main() {
   // connect-mongo manages its own MongoClient independently of mongoose, so
   // it will keep retrying in the background even if the connectMongo()
   // attempt above hasn't succeeded yet by the time we boot.
-  const sessionStore = MONGODB_URI
-    ? MongoStore.create({
+  const sessionStore = mongoConnected
+    ? new MongoStore({
         mongoUrl: MONGODB_URI,
         collectionName: 'sessions',
         ttl: 12 * 60 * 60, // seconds — matches the cookie maxAge below

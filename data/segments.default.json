@@ -9,13 +9,13 @@
     "color": "#B05E12",
     "colorLight": "#D98A3D",
     "weight": 40,
-    "todayReward": "A complimentary Signature Cookie with today's order.",
-    "futureReward": "Complimentary Cappuccino on bills above ₹500 for your next 5 visits.",
-    "validityDays": 90
+    "todayReward": "Complimentary Garlic Toast today.",
+    "futureReward": "Your Next Coffee Date Is On Us! — Complimentary Cappuccino on ₹699+.",
+    "validityDays": 15
   },
   {
     "id": "silver",
-    "order": 1,
+    "order": 0,
     "active": true,
     "label": "Silver Tier",
     "shortLabel": "Silver",
@@ -23,13 +23,13 @@
     "color": "#8E8E8E",
     "colorLight": "#C7C7C7",
     "weight": 25,
-    "todayReward": "Complimentary French Fries or Garlic Bread today.",
-    "futureReward": "Complimentary Mocktail or Iced Tea on bills above ₹700 for your next 7 visits.",
-    "validityDays": 90
+    "todayReward": "Complimentary Classic Cold Coffee today.",
+    "futureReward": "Cheers to Your Next Visit! — Complimentary Sunrise Serenade on ₹899+.",
+    "validityDays": 15
   },
   {
     "id": "gold",
-    "order": 2,
+    "order": 0,
     "active": true,
     "label": "Gold Tier",
     "shortLabel": "Gold",
@@ -37,13 +37,13 @@
     "color": "#BC8F1C",
     "colorLight": "#E8CE7B",
     "weight": 18,
-    "todayReward": "10% OFF on today's bill (Max ₹200).",
-    "futureReward": "10% OFF on bills above ₹800 for your next 10 visits.",
-    "validityDays": 90
+    "todayReward": "Complimentary Classic Waffle today.",
+    "futureReward": "Save Room for Something Sweet! — Complimentary Chocolate Cake on ₹999+.",
+    "validityDays": 15
   },
   {
     "id": "platinum",
-    "order": 3,
+    "order": 0,
     "active": true,
     "label": "Platinum Tier",
     "shortLabel": "Platinum",
@@ -51,13 +51,13 @@
     "color": "#8FA3B0",
     "colorLight": "#C3D2DA",
     "weight": 11,
-    "todayReward": "A complimentary Dessert today.",
-    "futureReward": "Complimentary Premium Coffee (Latte/Cappuccino) on bills above ₹600 for your next 15 visits.",
-    "validityDays": 90
+    "todayReward": "Complimentary Cappuccino today.",
+    "futureReward": "Come Back — Your Next Treat Is Waiting! — Complimentary Classic Pancake on ₹1,099+.",
+    "validityDays": 20
   },
   {
     "id": "diamond",
-    "order": 4,
+    "order": 0,
     "active": true,
     "label": "Diamond Tier",
     "shortLabel": "Diamond",
@@ -65,8 +65,8 @@
     "color": "#13273F",
     "colorLight": "#2E4A6E",
     "weight": 6,
-    "todayReward": "15% OFF on today's bill (Max ₹500).",
-    "futureReward": "Complimentary Cappuccino on bills above ₹500 for your next 25 visits + 25% OFF on one future visit (Max ₹500).",
-    "validityDays": 90
+    "todayReward": "Complimentary 6-inch Classic Italian Margherita Pizza today.",
+    "futureReward": "A Little More Love, On Your Next Visit! — Complimentary Dessert for Two on ₹1,499+.",
+    "validityDays": 20
   }
 ]
