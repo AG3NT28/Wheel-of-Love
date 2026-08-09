@@ -68,6 +68,11 @@ const SEGMENTS_FILE = path.join(DATA_DIR, 'segments.json');
 const DEFAULT_SEGMENTS_FILE = path.join(DATA_DIR, 'segments.default.json');
 const SPINS_FILE = path.join(DATA_DIR, 'spins.json');
 
+// Render (and similar PaaS free tiers) use an ephemeral filesystem that is
+// wiped on every cold start. When MongoDB is connected it is the single source
+// of truth; the JSON files are only used as a last-resort fallback for local
+// development without a database.
+
 // ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
@@ -89,15 +94,13 @@ function readJSON(file, fallback) {
 }
 
 function writeJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
-}
-
-function getSegments() {
-  return readJSON(SEGMENTS_FILE, []);
-}
-
-function saveSegments(segments) {
-  writeJSON(SEGMENTS_FILE, segments);
+  try {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+  } catch (err) {
+    // On ephemeral filesystems (e.g. Render free tier) this may fail — that is
+    // acceptable because MongoDB is the primary store when connected.
+    log('warn', `writeJSON(${path.basename(file)}): ${err.message}`);
+  }
 }
 
 function generateCode() {
@@ -137,7 +140,7 @@ function asyncHandler(fn) {
 }
 
 // ---------------------------------------------------------------------------
-// MongoDB connection & spin schema
+// MongoDB connection, spin schema & segment schema
 // ---------------------------------------------------------------------------
 let mongoReady = false;
 
@@ -155,11 +158,94 @@ const spinSchema = new mongoose.Schema({
 
 const Spin = mongoose.model('Spin', spinSchema);
 
-// Fallback storage if MongoDB isn't connected
+// Segments stored in MongoDB so admin edits survive Render free-tier cold starts.
+const segmentSchema = new mongoose.Schema({
+  id: { type: String, unique: true, required: true },
+  order: { type: Number, default: 0 },
+  active: { type: Boolean, default: true },
+  label: { type: String, required: true },
+  shortLabel: String,
+  icon: String,
+  color: String,
+  colorLight: String,
+  weight: { type: Number, default: 0 },
+  todayReward: String,
+  futureReward: String,
+  validityDays: { type: Number, default: 90 },
+}, { timestamps: false });
+
+const SegmentModel = mongoose.model('Segment', segmentSchema);
+
+// ---------------------------------------------------------------------------
+// Segment helpers — async, MongoDB-first with JSON file fallback
+// ---------------------------------------------------------------------------
+async function getSegments() {
+  try {
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      const docs = await SegmentModel.find({}).sort({ order: 1 }).lean();
+      if (docs.length > 0) return docs;
+      // MongoDB collection is empty — fall through to JSON file seed below
+    }
+  } catch (err) {
+    log('error', 'Error reading segments from MongoDB:', err.message);
+  }
+  return readJSON(SEGMENTS_FILE, []);
+}
+
+async function saveSegments(segments) {
+  try {
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      const ops = segments.map((seg) => ({
+        updateOne: {
+          filter: { id: seg.id },
+          update: { $set: seg },
+          upsert: true,
+        },
+      }));
+      await SegmentModel.bulkWrite(ops);
+      // Remove any segments no longer in the list
+      const ids = segments.map((s) => s.id);
+      await SegmentModel.deleteMany({ id: { $nin: ids } });
+      return; // MongoDB is the source of truth — skip disk write
+    }
+  } catch (err) {
+    log('error', 'Error saving segments to MongoDB:', err.message);
+  }
+  // Fallback: local JSON (development without MongoDB)
+  writeJSON(SEGMENTS_FILE, segments);
+}
+
+// Seed MongoDB segments from the JSON file if the collection is empty.
+// Called once at boot after a successful MongoDB connection.
+async function seedSegmentsIfEmpty() {
+  try {
+    const count = await SegmentModel.countDocuments();
+    if (count === 0) {
+      const fromFile = readJSON(SEGMENTS_FILE, readJSON(DEFAULT_SEGMENTS_FILE, []));
+      if (fromFile.length > 0) {
+        await SegmentModel.insertMany(fromFile, { ordered: false });
+        log('info', `[segments] Seeded ${fromFile.length} segment(s) from JSON file into MongoDB.`);
+      }
+    }
+  } catch (err) {
+    log('error', '[segments] Error seeding segments into MongoDB:', err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Spin fallback — only used when MongoDB is unavailable
+// ---------------------------------------------------------------------------
+// In-memory cache. Populated from MongoDB at boot (when connected) or from
+// the JSON file (local dev fallback). The JSON file is ephemeral on Render
+// free tier and is only a last-resort safety net.
 let spinsFallback = readJSON(SPINS_FILE, []);
 
 function persistSpinsFallback() {
-  writeJSON(SPINS_FILE, spinsFallback);
+  // Only write to disk in fallback mode (no MongoDB). On Render the disk is
+  // ephemeral and writing is pointless — MongoDB is the real store.
+  if (!mongoReady) {
+    writeJSON(SPINS_FILE, spinsFallback);
+  }
 }
 
 // These fire on every state change for the life of the process, so they
@@ -204,6 +290,23 @@ async function connectMongo() {
   }
 }
 
+// Re-hydrate the in-memory spin cache from MongoDB so we have a warm copy
+// from the very first request after a cold start.
+async function warmSpinsFallback() {
+  try {
+    if (mongoReady && mongoose.connection.readyState === 1) {
+      const spins = await Spin.find({}).sort({ timestamp: -1 }).lean();
+      spinsFallback = spins.map((s) => ({
+        ...s,
+        timestamp: s.timestamp instanceof Date ? s.timestamp.toISOString() : s.timestamp,
+      }));
+      log('info', `[spins] Warmed in-memory cache with ${spinsFallback.length} spin(s) from MongoDB.`);
+    }
+  } catch (err) {
+    log('error', '[spins] Error warming spinsFallback from MongoDB:', err.message);
+  }
+}
+
 async function getSpins() {
   try {
     if (mongoReady && mongoose.connection.readyState === 1) {
@@ -213,14 +316,14 @@ async function getSpins() {
         ...s,
         timestamp: s.timestamp instanceof Date ? s.timestamp.toISOString() : s.timestamp,
       }));
+      // Keep in-memory cache in sync
       spinsFallback = normalized;
-      persistSpinsFallback();
       return normalized;
     }
   } catch (err) {
     log('error', 'Error reading spins from MongoDB:', err.message);
   }
-  spinsFallback = readJSON(SPINS_FILE, []);
+  // Fallback: in-memory cache (already warmed at boot, or from JSON file in dev)
   return spinsFallback;
 }
 
@@ -228,10 +331,14 @@ async function saveSpin(spin) {
   try {
     if (mongoReady && mongoose.connection.readyState === 1) {
       await Spin.updateOne({ id: spin.id }, spin, { upsert: true });
+      // Update in-memory cache — no disk write needed when MongoDB is live
+      spinsFallback.unshift(spin);
+      return;
     }
   } catch (err) {
     log('error', 'Error saving spin to MongoDB:', err.message);
   }
+  // Fallback (no MongoDB): keep in-memory cache and persist to disk
   spinsFallback.unshift(spin);
   persistSpinsFallback();
 }
@@ -240,6 +347,8 @@ async function clearSpins() {
   try {
     if (mongoReady && mongoose.connection.readyState === 1) {
       await Spin.deleteMany({});
+      spinsFallback = [];
+      return;
     }
   } catch (err) {
     log('error', 'Error clearing spins from MongoDB:', err.message);
@@ -273,8 +382,8 @@ function registerRoutes() {
   // -------------------------------------------------------------------------
 
   // Wheel-facing data only: no weights, no reward copy (kept as a surprise).
-  app.get('/api/segments', (req, res) => {
-    const segments = getSegments()
+  app.get('/api/segments', asyncHandler(async (req, res) => {
+    const segments = (await getSegments())
       .filter((s) => s.active)
       .sort((a, b) => a.order - b.order)
       .map((s) => ({
@@ -286,10 +395,10 @@ function registerRoutes() {
         colorLight: s.colorLight || s.color,
       }));
     res.json({ segments });
-  });
+  }));
 
   app.post('/api/spin', asyncHandler(async (req, res) => {
-    const segments = getSegments()
+    const segments = (await getSegments())
       .filter((s) => s.active)
       .sort((a, b) => a.order - b.order);
 
@@ -359,12 +468,12 @@ function registerRoutes() {
   // -------------------------------------------------------------------------
   // Admin: segments (full detail, editable)
   // -------------------------------------------------------------------------
-  app.get('/api/admin/segments', requireAdmin, (req, res) => {
-    const segments = getSegments().sort((a, b) => a.order - b.order);
+  app.get('/api/admin/segments', requireAdmin, asyncHandler(async (req, res) => {
+    const segments = (await getSegments()).sort((a, b) => a.order - b.order);
     res.json({ segments });
-  });
+  }));
 
-  app.put('/api/admin/segments', requireAdmin, (req, res) => {
+  app.put('/api/admin/segments', requireAdmin, asyncHandler(async (req, res) => {
     const incoming = req.body?.segments;
     if (!Array.isArray(incoming) || incoming.length === 0) {
       return res.status(400).json({ error: 'Provide a non-empty array of segments.' });
@@ -390,15 +499,15 @@ function registerRoutes() {
       validityDays: Math.max(1, Number(seg.validityDays) || 90),
     }));
 
-    saveSegments(cleaned);
+    await saveSegments(cleaned);
     res.json({ segments: cleaned });
-  });
+  }));
 
-  app.post('/api/admin/segments/reset', requireAdmin, (req, res) => {
+  app.post('/api/admin/segments/reset', requireAdmin, asyncHandler(async (req, res) => {
     const defaults = readJSON(DEFAULT_SEGMENTS_FILE, []);
-    saveSegments(defaults);
+    await saveSegments(defaults);
     res.json({ segments: defaults });
-  });
+  }));
 
   // -------------------------------------------------------------------------
   // Admin: spin log
@@ -479,6 +588,15 @@ async function main() {
   validateEnv();
 
   const mongoConnected = await connectMongo();
+
+  if (mongoConnected) {
+    // One-time migration: seed MongoDB segments from the JSON file if the
+    // collection is empty (first deploy, or after a DB wipe).
+    await seedSegmentsIfEmpty();
+    // Warm the in-memory spin cache so the very first admin request after a
+    // cold start already has data — no wait for the first getSpins() call.
+    await warmSpinsFallback();
+  }
 
   // connect-mongo manages its own MongoClient independently of mongoose, so
   // it will keep retrying in the background even if the connectMongo()

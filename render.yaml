@@ -10,10 +10,11 @@ services:
         value: production
       - key: PORT
         value: 3000
+      # Set these in the Render dashboard → Environment tab.
+      # Never commit real secrets to source control.
       - key: MONGODB_URI
-        value: mongodb+srv://saisuhas481_db_user:wheeloflove_cdl@ac-wnyzzem.3funje4.mongodb.net/?appName=Wheeloflove
-
+        sync: false
       - key: ADMIN_PASSWORD
-        value: change-this-password
+        sync: false
       - key: SESSION_SECRET
-        value: change-this-to-something-random
+        sync: false
