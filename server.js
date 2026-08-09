@@ -277,12 +277,18 @@ async function connectMongo() {
   }
   try {
     await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
+      // Render cold-starts can be slow to resolve Atlas SRV DNS records.
+      // 30 s gives enough headroom without blocking startup for too long.
+      serverSelectionTimeoutMS: 30_000,
+      connectTimeoutMS: 30_000,
+      socketTimeoutMS: 45_000,
+      // Retry failed connections quickly (every 5 s) in the background.
+      heartbeatFrequencyMS: 5_000,
     });
     mongoReady = mongoose.connection.readyState === 1;
     return mongoReady;
   } catch (err) {
+
     mongoReady = false;
     log('error', '[mongo] initial connection failed:', err.message);
     log('warn', '[mongo] the driver will keep retrying in the background; spins/sessions use local fallback until it succeeds.');
